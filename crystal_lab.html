@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crystal Lab — structure ⇄ diffraction</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c232c; --line:#30363d; --txt:#c9d1d9;
+    --accent:#58a6ff; --hot:#ff5c57; --warm:#ffce54; --grid:#7d8590; --ok:#3fb950;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px}
+  #app{display:grid;grid-template-columns:290px 1fr 350px;grid-template-rows:100vh;height:100vh}
+  #controls,#right{background:var(--panel);padding:14px;overflow-y:auto}
+  #controls{border-right:1px solid var(--line)}
+  #right{border-left:1px solid var(--line)}
+  #center{position:relative;display:flex;flex-direction:column}
+  #tabs{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--panel)}
+  .tab{flex:1;padding:10px;text-align:center;cursor:pointer;color:var(--grid);
+    border-bottom:2px solid transparent;user-select:none}
+  .tab.on{color:#fff;border-bottom-color:var(--accent);background:var(--panel2)}
+  #scene{flex:1;position:relative}
+  h1{font-size:15px;margin:0 0 4px;color:#fff}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--grid);
+     margin:16px 0 8px;border-bottom:1px solid var(--line);padding-bottom:4px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 0}
+  .row label{flex:1}
+  .row .val{width:58px;text-align:right;font-variant-numeric:tabular-nums;color:var(--accent)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  input[type=number]{width:62px;background:#21262d;color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px}
+  select,button{background:#21262d;color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:6px 8px;font-size:13px}
+  button{cursor:pointer}
+  button.primary{background:var(--accent);color:#06121f;border:none;font-weight:600}
+  button.sm{padding:3px 7px;font-size:12px}
+  .sub{color:var(--grid);font-size:12px;line-height:1.5}
+  select.full{width:100%}
+  .filebtn{display:block;width:100%;text-align:center;margin-top:6px}
+  canvas#det{width:100%;background:#05080d;border:1px solid var(--line);border-radius:8px;display:block}
+  .stat{display:flex;justify-content:space-between;margin:4px 0}
+  .stat b{color:#fff;font-variant-numeric:tabular-nums}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  #cellBox{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums}
+  #atomEditor{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:6px}
+  .chk{display:flex;align-items:center;gap:6px;margin:6px 0}
+  #hint{position:absolute;bottom:8px;left:10px;color:var(--grid);font-size:11px;
+    background:rgba(13,17,23,.65);padding:4px 8px;border-radius:6px;max-width:92%}
+  .fres{font-variant-numeric:tabular-nums}
+  code{background:#21262d;padding:1px 4px;border-radius:4px;color:#e6c07b}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- LEFT -->
+  <div id="controls">
+    <h1>Crystal Lab</h1>
+    <div class="sub">Real-space structure &harr; diffraction. General (triclinic) cells, full space-group symmetry, real |F|² intensities.</div>
+
+    <h2>Structure</h2>
+    <select id="category" class="full" style="margin-bottom:6px"></select>
+    <select id="preset" class="full"></select>
+    <label class="filebtn"><input type="file" id="cifFile" accept=".cif,.txt" style="display:none">
+      <button class="sm" style="width:100%" onclick="document.getElementById('cifFile').click()">⬆ Upload CIF…</button></label>
+    <div id="cellBox"></div>
+    <div id="elLegend" class="sub" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:8px"><label>Cells shown</label>
+      <select id="superN"><option value="1">1 × 1 × 1</option><option value="2">2 × 2 × 2</option><option value="3">3 × 3 × 3</option></select></div>
+    <div class="row"><label><b>Display as</b></label>
+      <select id="repMode"><option value="atoms">Atoms (spheres)</option><option value="points">Dots only (see beam)</option></select></div>
+    <div class="chk"><input type="checkbox" id="showCopies" checked><label for="showCopies">Show boundary copies (full cell)</label></div>
+    <div class="chk"><input type="checkbox" id="showBonds" checked><label for="showBonds">Show bonds</label></div>
+    <div class="chk"><input type="checkbox" id="showBeam" checked><label for="showBeam">Show beam &amp; diffracted rays</label></div>
+    <div class="chk"><input type="checkbox" id="showPlanes" checked><label for="showPlanes">Highlight Bragg planes (hkl)</label></div>
+
+    <h2>Atom editor (asymmetric unit)</h2>
+    <select id="atomSel" class="full"></select>
+    <div id="atomEditor">
+      <div class="row"><label>Element</label><input type="text" id="el" style="width:62px"></div>
+      <div class="row"><label>x</label><input type="number" id="ax" step="0.001" min="0" max="1"></div>
+      <div class="row"><label>y</label><input type="number" id="ay" step="0.001" min="0" max="1"></div>
+      <div class="row"><label>z</label><input type="number" id="az" step="0.001" min="0" max="1"></div>
+      <div class="row"><label>B-factor (&Aring;²)</label><input type="range" id="ab" min="0" max="40" step="0.5" value="2"><input type="number" class="val" id="ab_v"></div>
+      <div class="row"><label>Occupancy</label><input type="range" id="ao" min="0" max="1" step="0.05" value="1"><input type="number" class="val" id="ao_v"></div>
+      <div class="row" style="margin-top:8px"><button class="sm" id="addAtom">+ Add</button><button class="sm" id="delAtom">Remove</button></div>
+      <div class="sub" style="margin-top:6px">Edits apply to the asymmetric unit; symmetry then regenerates the full cell.</div>
+    </div>
+
+    <h2>Beam &amp; rotation</h2>
+    <div class="row"><label>&lambda; (&Aring;)</label><input type="range" id="lam" min="0.4" max="2.0" step="0.02" value="1.0"><input type="number" class="val" id="lam_v"></div>
+    <div class="row"><label>d<sub>min</sub> (&Aring;)</label><input type="range" id="dmin" min="0.8" max="4" step="0.05" value="1.4"><input type="number" class="val" id="dmin_v"></div>
+    <div class="row"><label>distance (mm)</label><input type="range" id="dist" min="40" max="300" step="5" value="100"><input type="number" class="val" id="dist_v"></div>
+    <div class="row"><label>&phi; (&deg;)</label><input type="range" id="phi" min="0" max="360" step="0.5" value="0"><input type="number" class="val" id="phi_v"></div>
+    <div class="row"><label>oscillation &Delta;&phi;</label><input type="range" id="osc" min="0" max="20" step="0.05" value="2"><input type="number" class="val" id="osc_v"></div>
+    <div class="row" style="gap:6px">
+      <button id="play" class="primary" style="flex:1">&#9654; Rotate</button>
+      <button id="acc" style="flex:1">Accumulate</button>
+      <button id="clr">Clear</button>
+    </div>
+    <button id="reset" style="width:100%;margin-top:6px">&#8635; Reset orientation &amp; view</button>
+    <div class="chk" style="margin-top:8px"><input type="checkbox" id="dragWhole"><label for="dragWhole">Drag rotates whole system (orbit view)</label></div>
+    <div class="sub">Unchecked: drag reorients only the crystal in any direction (beam fixed); the φ slider / Rotate spins the goniometer on top. Checked: drag orbits the scene. Shift/right-drag always orbits. Scroll = zoom.</div>
+  </div>
+
+  <!-- CENTER -->
+  <div id="center">
+    <div id="tabs">
+      <div class="tab on" data-v="real">Real space (crystal)</div>
+      <div class="tab" data-v="recip">Reciprocal / Ewald</div>
+    </div>
+    <div id="scene"><div id="hint"></div></div>
+  </div>
+
+  <!-- RIGHT -->
+  <div id="right">
+    <h1>Detector</h1>
+    <canvas id="det" width="320" height="320"></canvas>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--hot)"></span>this still</span>
+      <span><span class="dot" style="background:var(--warm)"></span>accumulated</span>
+      <span><span class="dot" style="background:#2f6f4f"></span>res ring</span>
+    </div>
+    <div class="chk" style="margin-top:8px"><input type="checkbox" id="detLabels"><label for="detLabels">Show hkl labels on spots</label></div>
+
+    <h2>Bragg condition — live</h2>
+    <div class="sub" style="margin-bottom:6px">Strongest reflection diffracting right now (rotate to watch it change):</div>
+    <div class="stat"><span>reflection (hkl)</span><b id="b_hkl" class="fres">–</b></div>
+    <div class="stat"><span>d-spacing</span><b id="b_d" class="fres">–</b></div>
+    <div class="stat"><span>Bragg angle θ</span><b id="b_th" class="fres">–</b></div>
+    <div class="stat"><span>deviation 2θ</span><b id="b_tt" class="fres">–</b></div>
+    <div id="braggEq" style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px;margin-top:8px;font-variant-numeric:tabular-nums;font-size:12px;line-height:1.7">
+      <div style="text-align:center;font-size:15px;color:#fff;margin-bottom:5px">λ = 2 d sin θ</div>
+      <div id="eqLive" class="sub">rotate until a reflection diffracts…</div>
+    </div>
+
+    <h2>Structure-factor inspector</h2>
+    <div class="row"><label>reflection h k l</label>
+      <span><input type="number" id="ih" value="1" style="width:42px"><input type="number" id="ik" value="0" style="width:42px"><input type="number" id="il" value="0" style="width:42px"></span></div>
+    <div class="stat"><span>d-spacing</span><b id="f_d" class="fres">–</b></div>
+    <div class="stat"><span>|F|</span><b id="f_mag" class="fres">–</b></div>
+    <div class="stat"><span>phase</span><b id="f_ph" class="fres">–</b></div>
+    <div class="stat"><span>status</span><b id="f_stat" class="fres">–</b></div>
+
+    <h2>Live readout</h2>
+    <div class="stat"><span>Space group</span><b id="s_sg" class="fres">–</b></div>
+    <div class="stat"><span>Atoms (asym / cell)</span><b id="s_atoms">0</b></div>
+    <div class="stat"><span>Reflections (to d<sub>min</sub>)</span><b id="s_total">0</b></div>
+    <div class="stat"><span>Diffracting this &phi;</span><b id="s_active">0</b></div>
+    <div class="stat"><span>Edge resolution</span><b id="s_edge">–</b></div>
+
+    <h2>Notes</h2>
+    <div class="sub">
+      • Built-in molecular example uses idealized geometry; for real work <b>upload a CIF</b> (cell + symmetry + atoms are read automatically).<br>
+      • Intensities are |F|² with an approximate (Z·Gaussian) form factor + B-factor; absences are physically correct.<br>
+      • Edit the asymmetric unit and watch the whole pattern respond.
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+const deg=Math.PI/180;
+const norm=a=>Math.hypot(a[0],a[1],a[2]);
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s];
+const subv=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+
+/* ---------- element data ---------- */
+const ZTAB={H:1,He:2,Li:3,Be:4,B:5,C:6,N:7,O:8,F:9,Ne:10,Na:11,Mg:12,Al:13,Si:14,P:15,S:16,Cl:17,Ar:18,
+  K:19,Ca:20,Sc:21,Ti:22,V:23,Cr:24,Mn:25,Fe:26,Co:27,Ni:28,Cu:29,Zn:30,Ga:31,Ge:32,As:33,Se:34,Br:35,Kr:36,
+  Rb:37,Sr:38,Y:39,Zr:40,Nb:41,Mo:42,Tc:43,Ru:44,Rh:45,Pd:46,Ag:47,Cd:48,In:49,Sn:50,Sb:51,Te:52,I:53,Xe:54,
+  Cs:55,Ba:56,La:57,Ce:58,Gd:64,Tb:65,W:74,Re:75,Os:76,Ir:77,Pt:78,Au:79,Hg:80,Tl:81,Pb:82,Bi:83,Po:84,U:92};
+const ELC={H:0xffffff,C:0x404040,N:0x3050f8,O:0xff2010,F:0x90e050,P:0xff8000,S:0xffe14d,Cl:0x36d100,
+  Na:0xab5cf2,Mg:0x8aff00,K:0x8f40d4,Ca:0x3dff00,Fe:0xe06633,Zn:0x7d80b0,Cu:0xc78033,Si:0xb8a060,
+  Br:0xa62929,I:0x940094,Se:0xffa100,Cs:0x57178f,Po:0xaa5c00};
+const _elCache={};
+function elInfo(sym){
+  if(_elCache[sym])return _elCache[sym];
+  const Z=ZTAB[sym]||6;
+  let c=ELC[sym];
+  if(c===undefined){const hue=(Z*47)%360;c=hslHex(hue,0.55,0.6);}      // stable fallback color
+  const r=0.45+0.012*Z; const info={Z,c,r:Math.min(r,1.7)};
+  _elCache[sym]=info; return info;
+}
+function hslHex(h,s,l){h/=360;const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));};
+  const to=v=>Math.round(v*255);return (to(f(0))<<16)|(to(f(8))<<8)|to(f(4));}
+function normEl(s){const m=String(s).match(/[A-Za-z]{1,2}/);if(!m)return 'C';const e=m[0];return e[0].toUpperCase()+(e[1]?e[1].toLowerCase():'');}
+
+/* ---------- symmetry: parse "x,y,z" operators ---------- */
+function frac(t){const neg=t[0]==='-';if(neg)t=t.slice(1);const p=t.split('/');const v=p.length===2?(+p[0])/(+p[1]):+t;return neg?-v:v;}
+function parseSymop(str){
+  const R=[0,0,0,0,0,0,0,0,0],t=[0,0,0];
+  str.toLowerCase().replace(/\s/g,'').split(',').forEach((comp,row)=>{
+    const toks=comp.replace(/-/g,'+-').split('+').filter(x=>x.length);
+    for(const tk of toks){
+      const vi='xyz'.indexOf(tk[tk.length-1]);
+      if(vi>=0){let co=tk.slice(0,-1);let s=1;if(co[0]==='-'){s=-1;co=co.slice(1);}const val=co===''?1:(co.includes('/')?frac(co):parseFloat(co));R[row*3+vi]+=s*val;}
+      else { t[row]+= tk.includes('/')?frac(tk):parseFloat(tk); }
+    }
+  });
+  return {R,t};
+}
+
+/* ---------- structure model ---------- */
+let cell={a:8,b:7,c:6,al:90,be:90,ga:90}, sgName='P 1';
+let symops=[{R:[1,0,0,0,1,0,0,0,1],t:[0,0,0]}];
+let asym=[];                 // editable asymmetric unit
+let atoms=[];                // full-cell atoms (expanded)
+let Mcell=[[1,0,0],[0,1,0],[0,0,1]], recip={as:[1,0,0],bs:[0,1,0],cs:[0,0,1]}, rScale=1, cellVol=1;
+
+function buildCell(){
+  const {a,b,c,al,be,ga}=cell;
+  const ca=Math.cos(al*deg),cb=Math.cos(be*deg),cg=Math.cos(ga*deg),sg=Math.sin(ga*deg);
+  const vf=Math.sqrt(Math.max(1e-9,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
+  const ax=[a,0,0], bx=[b*cg,b*sg,0], cx=[c*cb, c*(ca-cb*cg)/sg, c*vf/sg];
+  Mcell=[ax,bx,cx];                            // columns = cell vectors; cart = u0*ax+u1*bx+u2*cx
+  cellVol=a*b*c*vf;
+  recip={as:scl(cross(bx,cx),1/cellVol), bs:scl(cross(cx,ax),1/cellVol), cs:scl(cross(ax,bx),1/cellVol)};
+  rScale=1/Math.max(a,b,c);
+}
+function f2c(u){return [u[0]*Mcell[0][0]+u[1]*Mcell[1][0]+u[2]*Mcell[2][0],
+                        u[0]*Mcell[0][1]+u[1]*Mcell[1][1]+u[2]*Mcell[2][1],
+                        u[0]*Mcell[0][2]+u[1]*Mcell[1][2]+u[2]*Mcell[2][2]];}
+function pstar(h,k,l){return [h*recip.as[0]+k*recip.bs[0]+l*recip.cs[0],
+                              h*recip.as[1]+k*recip.bs[1]+l*recip.cs[1],
+                              h*recip.as[2]+k*recip.bs[2]+l*recip.cs[2]];}
+function expandSymmetry(){
+  atoms=[]; const seen={};
+  asym.forEach((a,si)=>{for(const op of symops){
+    let x=op.R[0]*a.x+op.R[1]*a.y+op.R[2]*a.z+op.t[0];
+    let y=op.R[3]*a.x+op.R[4]*a.y+op.R[5]*a.z+op.t[1];
+    let z=op.R[6]*a.x+op.R[7]*a.y+op.R[8]*a.z+op.t[2];
+    x=((x%1)+1)%1; y=((y%1)+1)%1; z=((z%1)+1)%1;
+    const key=a.el+Math.round(x*1000)+'_'+Math.round(y*1000)+'_'+Math.round(z*1000);
+    if(seen[key])return; seen[key]=1;
+    atoms.push({el:a.el,x,y,z,B:a.B,occ:a.occ,src:si});   // src = which asymmetric-unit atom this came from
+  }});
+}
+
+/* ---------- live state ---------- */
+const S={lam:1.0, dmin:1.4, dist:100, phi:0, osc:2};
+let refl=[];
+let recorded=[], playing=false, accumulate=false, view='real', sel=0, Imax=1;
+const FORMC=2.5;
+
+/* ---------- structure factor ---------- */
+function Fhkl(h,k,l){
+  const ps=pstar(h,k,l), p=norm(ps), s2=(p/2)*(p/2);
+  let re=0,im=0;
+  for(const at of atoms){
+    const f=elInfo(at.el).Z*at.occ*Math.exp(-(FORMC+at.B)*s2);
+    const ph=2*Math.PI*(h*at.x+k*at.y+l*at.z);
+    re+=f*Math.cos(ph); im+=f*Math.sin(ph);
+  }
+  return {re,im,I:re*re+im*im,mag:Math.hypot(re,im),phase:Math.atan2(im,re)/deg,p};
+}
+function buildReflections(){
+  const smax=1/S.dmin;
+  const hm=Math.ceil(smax/norm(recip.as))+1, km=Math.ceil(smax/norm(recip.bs))+1, lm=Math.ceil(smax/norm(recip.cs))+1;
+  refl=[]; Imax=1e-9;
+  for(let h=-hm;h<=hm;h++)for(let k=-km;k<=km;k++)for(let l=-lm;l<=lm;l++){
+    if(!h&&!k&&!l)continue;
+    const ps=pstar(h,k,l), pl=norm(ps);
+    if(pl>smax)continue;
+    const F=Fhkl(h,k,l);
+    refl.push({h,k,l,p0:ps,I:F.I});
+    if(F.I>Imax)Imax=F.I;
+    if(refl.length>30000)return;
+  }
+}
+
+/* ---------- THREE: one renderer, two scenes ---------- */
+const sceneEl=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+sceneEl.appendChild(renderer.domElement);
+const sReal=new THREE.Scene();  sReal.background=new THREE.Color(0x0d1117);
+const sRec =new THREE.Scene();  sRec.background =new THREE.Color(0x0d1117);
+sReal.add(new THREE.AmbientLight(0xffffff,0.7));
+const dlight=new THREE.DirectionalLight(0xffffff,0.8); dlight.position.set(3,5,4); sReal.add(dlight);
+
+const camReal=new THREE.PerspectiveCamera(45,1,0.001,100);
+const camRec =new THREE.PerspectiveCamera(45,1,0.001,100);
+const orbReal={R:4.0,az:0.7,pol:1.05,tx:0,ty:0,tz:0};
+const orbRec ={R:4.0,az:0.7,pol:1.05,tx:0,ty:0,tz:0};
+const Qsetup=new THREE.Quaternion();
+const _v=new THREE.Vector3(),_yA=new THREE.Vector3(0,1,0),_xA=new THREE.Vector3(1,0,0);
+const _qgon=new THREE.Quaternion(),_qtot=new THREE.Quaternion(),_dq=new THREE.Quaternion(),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion();
+function applyQ(p,q){_v.set(p[0],p[1],p[2]).applyQuaternion(q);return[_v.x,_v.y,_v.z];}
+function freeRotate(dx,dy){const k=0.01;
+  _qa.setFromAxisAngle(_yA,-dx*k);_qb.setFromAxisAngle(_xA,-dy*k);
+  _dq.copy(_qa).multiply(_qb);Qsetup.premultiply(_dq);compute();}
+function place(cam,o){o.pol=Math.max(0.05,Math.min(Math.PI-0.05,o.pol));
+  cam.position.set(o.tx+o.R*Math.sin(o.pol)*Math.cos(o.az),o.ty+o.R*Math.cos(o.pol),o.tz+o.R*Math.sin(o.pol)*Math.sin(o.az));
+  cam.lookAt(o.tx,o.ty,o.tz);}
+(function(){let down=false,px=0,py=0,orbit=false;const el=renderer.domElement;
+  el.addEventListener('mousedown',e=>{down=true;px=e.clientX;py=e.clientY;
+    orbit=(e.button===2||e.shiftKey||document.getElementById('dragWhole').checked);});
+  el.addEventListener('contextmenu',e=>e.preventDefault());
+  window.addEventListener('mouseup',()=>down=false);
+  window.addEventListener('blur',()=>down=false);
+  window.addEventListener('mousemove',e=>{if(!down)return;
+    const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+    if(orbit){const o=view==='real'?orbReal:orbRec;o.az-=dx*0.01;o.pol-=dy*0.01;place(view==='real'?camReal:camRec,o);}
+    else{freeRotate(dx,dy);}});
+  el.addEventListener('wheel',e=>{e.preventDefault();const o=view==='real'?orbReal:orbRec;
+    o.R*=(1+Math.sign(e.deltaY)*0.1);o.R=Math.max(0.4,Math.min(40,o.R));
+    place(view==='real'?camReal:camRec,o);},{passive:false});
+})();
+
+/* ----- REAL-space scene ----- */
+let realGroup=new THREE.Group(); sReal.add(realGroup);
+let planeGroup=new THREE.Group(); sReal.add(planeGroup);
+let realBeam=null, realRays=null, blockOff=0.5, lastPlaneKey='';
+let centerScene=[0,0,0], planeReach=1;
+const sphereGeo=new THREE.SphereGeometry(1,18,14);
+function toScene(frac){return subv(scl(f2c(frac),rScale),centerScene);}
+function addBox(group,ci,cj,ck,mat){
+  const corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]].map(d=>toScene([ci+d[0],cj+d[1],ck+d[2]]));
+  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  for(const e of edges)group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...corners[e[0]]),new THREE.Vector3(...corners[e[1]])]),mat));
+}
+function buildReal(){
+  sReal.remove(realGroup); realGroup=new THREE.Group(); sReal.add(realGroup);
+  const N=Math.max(1,Math.min(3,parseInt(document.getElementById('superN').value)||1));
+  blockOff=N/2;
+  centerScene=scl(f2c([N/2,N/2,N/2]),rScale);
+  planeReach=0.6*norm(scl(f2c([N,N,N]),rScale));
+  const showCopies=document.getElementById('showCopies').checked;
+  const boxMat=new THREE.LineBasicMaterial({color:0x3a4350});
+  const mode=document.getElementById('repMode').value;
+  const drawn=[], ptPos=[], ptCol=[];
+  for(let ci=0;ci<N;ci++)for(let cj=0;cj<N;cj++)for(let ck=0;ck<N;ck++){
+    addBox(realGroup,ci,cj,ck,boxMat);
+    atoms.forEach((at,idx)=>{
+      const e=elInfo(at.el); const copies=showCopies?expandBoundary(at):[[at.x,at.y,at.z]];
+      for(const c of copies){
+        const P=toScene([c[0]+ci,c[1]+cj,c[2]+ck]);
+        drawn.push({pos:P,el:at.el});
+        if(mode==='atoms'){
+          const m=new THREE.Mesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60,
+            opacity:at.occ<1?0.35+0.6*at.occ:1,transparent:at.occ<1}));
+          let r=0.42*rScale*Math.cbrt(e.r)*3; if(at.src===sel)r*=1.45;   // selected atom enlarged; colour stays true to element
+          m.scale.set(r,r,r);
+          m.position.set(P[0],P[1],P[2]); realGroup.add(m);
+        }else{ptPos.push(P[0],P[1],P[2]);const cc=new THREE.Color(e.c);ptCol.push(cc.r,cc.g,cc.b);}
+      }
+    });
+  }
+  if(mode==='points'&&ptPos.length){
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(ptPos,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(ptCol,3));
+    realGroup.add(new THREE.Points(g,new THREE.PointsMaterial({size:0.05,vertexColors:true,sizeAttenuation:true})));
+  }
+  if(mode==='atoms'&&document.getElementById('showBonds').checked&&drawn.length<2500){
+    const cut=1.85*rScale;            // covalent bond cutoff (~1.85 Å) in scene units
+    for(let i=0;i<drawn.length;i++)for(let j=i+1;j<drawn.length;j++){
+      const A=drawn[i].pos,B=drawn[j].pos;
+      const d=Math.hypot(A[0]-B[0],A[1]-B[1],A[2]-B[2]);
+      if(d>0.02&&d<cut)realGroup.add(bond(A,B));
+    }
+  }
+  buildBeamObjects(blockOff);
+  lastPlaneKey='';
+}
+function expandBoundary(at){
+  const opts=v=>Math.abs(v)<1e-6?[0,1]:(Math.abs(v-1)<1e-6?[0,1]:[v]);
+  const out=[];
+  for(const X of opts(at.x))for(const Y of opts(at.y))for(const Z of opts(at.z))out.push([X,Y,Z]);
+  return out;
+}
+function bond(A,B){
+  const a=new THREE.Vector3(...A),b=new THREE.Vector3(...B);
+  const dir=new THREE.Vector3().subVectors(b,a),len=dir.length();
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,len,7),new THREE.MeshPhongMaterial({color:0x9aa6b2}));
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
+  return m;
+}
+function buildBeamObjects(off){
+  if(realBeam){sReal.remove(realBeam);realBeam=null;}
+  if(realRays){sReal.remove(realRays);realRays=null;}
+  const show=document.getElementById('showBeam').checked, L=off+1.3;
+  if(show){
+    realBeam=new THREE.Group();
+    const rad=0.018*(off+1)+0.012, mat=new THREE.MeshBasicMaterial({color:0xffce54});
+    const shaft=new THREE.Mesh(new THREE.CylinderGeometry(rad,rad,2*L-0.5,16),mat);
+    shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1));
+    shaft.position.set(0,0,-0.25); realBeam.add(shaft);
+    const head=new THREE.Mesh(new THREE.ConeGeometry(rad*2.6,0.5,18),mat);
+    head.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1));
+    head.position.set(0,0,L-0.25); realBeam.add(head);
+    sReal.add(realBeam);
+  }
+  const rg=new THREE.BufferGeometry();
+  rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(Math.max(1,refl.length)*6),3));
+  realRays=new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0xff7b54,transparent:true,opacity:0.95}));
+  realRays.visible=show; sReal.add(realRays);
+}
+
+/* ----- Bragg (hkl) plane highlighting (general cell) ----- */
+function clearPlanes(){
+  while(planeGroup.children.length){const ch=planeGroup.children[0];planeGroup.remove(ch);
+    if(ch.geometry)ch.geometry.dispose();
+    if(ch.material){if(ch.material.map)ch.material.map.dispose();ch.material.dispose();}}
+}
+function makeLabel(txt){
+  const c=document.createElement('canvas');c.width=160;c.height=72;
+  const x=c.getContext('2d');x.font='bold 38px sans-serif';x.textAlign='center';x.textBaseline='middle';
+  x.lineWidth=6;x.strokeStyle='rgba(5,8,13,0.9)';x.strokeText(txt,80,36);x.fillStyle='#8be9fd';x.fillText(txt,80,36);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false}));
+  s.scale.set(0.7,0.32,1); return s;
+}
+function buildPlanes(h,k,l){
+  clearPlanes();
+  if(!document.getElementById('showPlanes').checked)return;
+  const ps=pstar(h,k,l), pl=norm(ps); if(pl<1e-9)return;
+  const n=new THREE.Vector3(ps[0]/pl,ps[1]/pl,ps[2]/pl);
+  const dA=1/pl, spacing=rScale*dA, reach=planeReach, size=reach*2.2;
+  const geo=new THREE.PlaneGeometry(size,size);
+  const mat=new THREE.MeshBasicMaterial({color:0x39c5cf,transparent:true,opacity:0.18,side:THREE.DoubleSide,depthWrite:false});
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),n);
+  const base=n.x*centerScene[0]+n.y*centerScene[1]+n.z*centerScene[2];   // dist_m = spacing*m - base
+  const mLo=Math.ceil((base-reach)/spacing), mHi=Math.floor((base+reach)/spacing);
+  let cnt=0;
+  for(let m=mLo;m<=mHi&&cnt<60;m++,cnt++){
+    const dist=spacing*m-base;
+    const plm=new THREE.Mesh(geo,mat); plm.quaternion.copy(q); plm.position.copy(n).multiplyScalar(dist);
+    planeGroup.add(plm);
+  }
+  const lbl=makeLabel(`(${h} ${k} ${l})`);
+  lbl.position.copy(n).multiplyScalar(reach*0.5+0.3);
+  planeGroup.add(lbl);
+}
+
+/* ----- RECIPROCAL scene ----- */
+let ewald=null,pts=null,rays=null;
+const beam=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),new THREE.LineBasicMaterial({color:0xffce54}));
+sRec.add(beam);
+sRec.add(new THREE.Mesh(new THREE.SphereGeometry(0.012,12,12),new THREE.MeshBasicMaterial({color:0xffffff})));
+sRec.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-1.5,0),new THREE.Vector3(0,1.5,0)]),new THREE.LineBasicMaterial({color:0x30363d})));
+function buildEwald(K){if(ewald)sRec.remove(ewald);
+  ewald=new THREE.Mesh(new THREE.SphereGeometry(K,40,28),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
+  ewald.position.set(0,0,-K); sRec.add(ewald);}
+function buildRecipPoints(){
+  if(pts)sRec.remove(pts); if(rays)sRec.remove(rays);
+  const n=refl.length;
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.045,vertexColors:true,sizeAttenuation:true}));
+  sRec.add(pts);
+  const rg=new THREE.BufferGeometry();
+  rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*6),3));
+  rays=new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0xff5c57,transparent:true,opacity:0.85}));
+  sRec.add(rays);
+}
+
+/* ---------- detector ---------- */
+const det=document.getElementById('det'),dctx=det.getContext('2d');
+let detHalf=80;
+function drawDetector(spots){
+  const W=det.width,H=det.height, detLabels=document.getElementById('detLabels').checked;
+  dctx.fillStyle='#05080d';dctx.fillRect(0,0,W,H);
+  dctx.strokeStyle='#2f6f4f';dctx.setLineDash([3,4]);dctx.fillStyle='#3f8f6f';dctx.font='10px sans-serif';
+  for(const d of [S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3]){
+    const th=Math.asin(Math.min(0.999,S.lam/(2*d)));const rmm=S.dist*Math.tan(2*th);const rpx=rmm/detHalf*(W/2);
+    if(rpx<W/2){dctx.beginPath();dctx.arc(W/2,H/2,rpx,0,7);dctx.stroke();dctx.fillText(d.toFixed(2)+'Å',W/2+rpx*0.7,H/2-rpx*0.7);}
+  }
+  dctx.setLineDash([]);
+  const m2p=mm=>W/2+mm/detHalf*(W/2);
+  for(const s of recorded){const x=m2p(s.x),y=m2p(-s.y);if(x<0||x>W||y<0||y>H)continue;
+    dctx.fillStyle='rgba(255,206,84,'+(0.2+0.6*s.b)+')';dctx.beginPath();dctx.arc(x,y,1+2.6*s.b,0,7);dctx.fill();}
+  dctx.font='9px sans-serif';dctx.textAlign='left';dctx.textBaseline='alphabetic';let lbl=0;
+  for(const s of spots){const x=m2p(s.x),y=m2p(-s.y);if(x<0||x>W||y<0||y>H)continue;
+    dctx.fillStyle='rgba(255,92,87,'+(0.35+0.6*s.b)+')';dctx.beginPath();dctx.arc(x,y,1.3+3*s.b,0,7);dctx.fill();
+    if(detLabels&&s.b>0.3&&lbl<40){dctx.fillStyle='rgba(225,240,255,0.92)';dctx.fillText(`${s.h} ${s.k} ${s.l}`,x+4,y-3);lbl++;}}
+  dctx.strokeStyle='#888';dctx.beginPath();dctx.moveTo(W/2-6,H/2);dctx.lineTo(W/2+6,H/2);dctx.moveTo(W/2,H/2-6);dctx.lineTo(W/2,H/2+6);dctx.stroke();
+}
+
+/* ---------- per-frame compute ---------- */
+function rotY(p,phi){const c=Math.cos(phi),s=Math.sin(phi);return[c*p[0]+s*p[2],p[1],-s*p[0]+c*p[2]];}
+function excit(p,K){return Math.hypot(p[0],p[1],p[2]+K)-K;}
+function project(pr,K){const sz=pr[2]+K;if(sz<=1e-6)return null;const t=S.dist/sz;return{x:pr[0]*t,y:pr[1]*t};}
+function compute(){
+  const K=1/S.lam,phi=S.phi*deg,half=S.osc*deg/2;
+  const pos=pts.geometry.attributes.position.array,col=pts.geometry.attributes.color.array;
+  const ra=rays.geometry.attributes.position.array;
+  let active=0,rayN=0,best=null; const spots=[]; const band=0.008;
+  _qgon.setFromAxisAngle(_yA,phi);_qtot.copy(_qgon).multiply(Qsetup);
+  if(realGroup)realGroup.quaternion.copy(_qtot);
+  planeGroup.quaternion.copy(_qtot);
+  const rr=realRays?realRays.geometry.attributes.position.array:null;
+  let rrN=0; const Lr=blockOff+1.3;
+  for(let i=0;i<refl.length;i++){
+    const r=refl[i];
+    const ps=applyQ(r.p0,Qsetup);
+    const pr=rotY(ps,phi);
+    pos[i*3]=pr[0];pos[i*3+1]=pr[1];pos[i*3+2]=pr[2];
+    const b=Math.sqrt(r.I/Imax);
+    const e=excit(pr,K), on=Math.abs(e)<band;
+    let rec=false;                                   // "is this reflection diffracting in this still / wedge?"
+    if(b>0.02){
+      if(S.osc>0){const e1=excit(rotY(ps,phi-half),K),e2=excit(rotY(ps,phi+half),K);rec=(e1*e2<=0)||on;}
+      else rec=on;
+    }
+    if(rec){                                         // one condition drives ray + reciprocal highlight + plane + spot
+      col[i*3]=1;col[i*3+1]=0.36*b+0.1;col[i*3+2]=0.34*b+0.05;active++;
+      const dir=[pr[0],pr[1],pr[2]+K],dl=norm(dir);
+      ra[rayN++]=0;ra[rayN++]=0;ra[rayN++]=-K;
+      ra[rayN++]=pr[0]+dir[0]/dl*0.4;ra[rayN++]=pr[1]+dir[1]/dl*0.4;ra[rayN++]=pr[2]+dir[2]/dl*0.4;
+      if(rr){rr[rrN++]=0;rr[rrN++]=0;rr[rrN++]=0;rr[rrN++]=dir[0]/dl*Lr;rr[rrN++]=dir[1]/dl*Lr;rr[rrN++]=dir[2]/dl*Lr;}
+      const dsp=1/norm(r.p0);
+      if(!best||b>best.b)best={b,d:dsp,h:r.h,k:r.k,l:r.l};       // strongest diffracting reflection → plane + readout
+      const sp=project(pr,K);                                    // spot shows only if the beam reaches the detector face
+      if(sp){spots.push({x:sp.x,y:sp.y,b,d:dsp,h:r.h,k:r.k,l:r.l});if(accumulate)recorded.push({x:sp.x,y:sp.y,b});}
+    }else{const g=0.10+0.5*b;col[i*3]=g*0.8;col[i*3+1]=g*0.8;col[i*3+2]=g;}
+  }
+  for(let j=rayN;j<ra.length;j++)ra[j]=0;
+  pts.geometry.attributes.position.needsUpdate=true;
+  pts.geometry.attributes.color.needsUpdate=true;
+  rays.geometry.attributes.position.needsUpdate=true;
+  if(rr){for(let j=rrN;j<rr.length;j++)rr[j]=0;realRays.geometry.attributes.position.needsUpdate=true;}
+  beam.geometry.setFromPoints([new THREE.Vector3(0,0,-K),new THREE.Vector3(0,0,0)]);
+  if(accumulate&&recorded.length>60000)recorded.splice(0,recorded.length-60000);
+  drawDetector(spots);
+  document.getElementById('s_atoms').textContent=asym.length+' / '+atoms.length;
+  document.getElementById('s_total').textContent=refl.length;
+  document.getElementById('s_active').textContent=active;
+  const thE=Math.atan2(detHalf,S.dist)/2,dE=S.lam/(2*Math.sin(thE));
+  document.getElementById('s_edge').textContent=dE.toFixed(2)+' Å';
+  if(best){const th=Math.asin(Math.min(0.999,S.lam/(2*best.d)))/deg;
+    document.getElementById('b_hkl').textContent=`(${best.h} ${best.k} ${best.l})`;
+    document.getElementById('b_d').textContent=best.d.toFixed(3)+' Å';
+    document.getElementById('b_th').textContent=th.toFixed(2)+'°';
+    document.getElementById('b_tt').textContent=(2*th).toFixed(2)+'°';
+    const sv=Math.sin(th*deg), rhs=2*best.d*sv;
+    document.getElementById('eqLive').innerHTML=
+      `2 × <b style="color:#58a6ff">${best.d.toFixed(3)}</b> × sin(<b style="color:#58a6ff">${th.toFixed(2)}°</b>)`
+      +` = 2 × ${best.d.toFixed(3)} × ${sv.toFixed(4)} = <b style="color:#3fb950">${rhs.toFixed(3)} Å</b>`
+      +`  ⟶  λ = <b style="color:#ffce54">${S.lam.toFixed(3)} Å</b> ✓`;
+    const key=`${best.h},${best.k},${best.l}`;
+    if(key!==lastPlaneKey){buildPlanes(best.h,best.k,best.l);lastPlaneKey=key;}
+  }else{['b_hkl','b_d','b_th','b_tt'].forEach(i=>document.getElementById(i).textContent='–');
+    document.getElementById('eqLive').innerHTML='rotate until a reflection diffracts…';
+    if(lastPlaneKey!==''){clearPlanes();lastPlaneKey='';}}
+}
+
+/* ---------- inspector ---------- */
+function updateInspector(){
+  const h=+document.getElementById('ih').value,k=+document.getElementById('ik').value,l=+document.getElementById('il').value;
+  if(h===0&&k===0&&l===0){document.getElementById('f_stat').textContent='–';return;}
+  const F=Fhkl(h,k,l),d=1/F.p;
+  document.getElementById('f_d').textContent=d.toFixed(3)+' Å';
+  document.getElementById('f_mag').textContent=F.mag.toFixed(1);
+  document.getElementById('f_ph').textContent=F.phase.toFixed(0)+'°';
+  const absent=F.I<(Imax*1e-4+0.5);
+  const st=document.getElementById('f_stat');st.textContent=absent?'ABSENT':'present';st.style.color=absent?'#ff5c57':'#3fb950';
+}
+
+/* ---------- rebuild ---------- */
+function rebuildStructure(){buildReflections();buildReal();buildRecipPoints();buildEwald(1/S.lam);compute();updateInspector();}
+
+/* ---------- structure library (symStr = symmetry operators applied to the asymmetric unit) ---------- */
+const FCEN=['x,y,z','x+1/2,y+1/2,z','x+1/2,y,z+1/2','x,y+1/2,z+1/2'];   // F-centering
+const ICEN=['x,y,z','x+1/2,y+1/2,z+1/2'];                               // I-centering
+const P1=['x,y,z'];
+const CATALOG={
+  "Inorganic crystals":{
+    "NaCl (rock salt)":{cell:{a:5.64,b:5.64,c:5.64,al:90,be:90,ga:90},sg:'F m -3 m',symStr:FCEN,bond:false,
+       asym:[{el:'Na',x:0,y:0,z:0,B:1.2,occ:1},{el:'Cl',x:0.5,y:0,z:0,B:1.2,occ:1}]},
+    "CsCl":{cell:{a:4.12,b:4.12,c:4.12,al:90,be:90,ga:90},sg:'P m -3 m',symStr:P1,bond:false,
+       asym:[{el:'Cs',x:0,y:0,z:0,B:1.3,occ:1},{el:'Cl',x:0.5,y:0.5,z:0.5,B:1.3,occ:1}]},
+    "Diamond (C)":{cell:{a:3.567,b:3.567,c:3.567,al:90,be:90,ga:90},sg:'F d -3 m',symStr:FCEN,bond:true,
+       asym:[{el:'C',x:0,y:0,z:0,B:0.5,occ:1},{el:'C',x:0.25,y:0.25,z:0.25,B:0.5,occ:1}]},
+    "Silicon":{cell:{a:5.431,b:5.431,c:5.431,al:90,be:90,ga:90},sg:'F d -3 m',symStr:FCEN,bond:true,
+       asym:[{el:'Si',x:0,y:0,z:0,B:0.6,occ:1},{el:'Si',x:0.25,y:0.25,z:0.25,B:0.6,occ:1}]},
+    "Copper (fcc)":{cell:{a:3.615,b:3.615,c:3.615,al:90,be:90,ga:90},sg:'F m -3 m',symStr:FCEN,bond:false,
+       asym:[{el:'Cu',x:0,y:0,z:0,B:0.8,occ:1}]},
+    "Iron (bcc)":{cell:{a:2.866,b:2.866,c:2.866,al:90,be:90,ga:90},sg:'I m -3 m',symStr:ICEN,bond:false,
+       asym:[{el:'Fe',x:0,y:0,z:0,B:0.7,occ:1}]},
+    "Polonium (simple cubic)":{cell:{a:3.359,b:3.359,c:3.359,al:90,be:90,ga:90},sg:'P m -3 m',symStr:P1,bond:false,
+       asym:[{el:'Po',x:0,y:0,z:0,B:1.5,occ:1}]},
+    "Zinc blende (ZnS)":{cell:{a:5.41,b:5.41,c:5.41,al:90,be:90,ga:90},sg:'F -4 3 m',symStr:FCEN,bond:true,
+       asym:[{el:'Zn',x:0,y:0,z:0,B:1,occ:1},{el:'S',x:0.25,y:0.25,z:0.25,B:1,occ:1}]},
+    "Fluorite (CaF₂)":{cell:{a:5.46,b:5.46,c:5.46,al:90,be:90,ga:90},sg:'F m -3 m',symStr:FCEN,bond:false,
+       asym:[{el:'Ca',x:0,y:0,z:0,B:1,occ:1},{el:'F',x:0.25,y:0.25,z:0.25,B:1.2,occ:1},{el:'F',x:0.75,y:0.75,z:0.75,B:1.2,occ:1}]},
+    "Quartz-like (P1, hexagonal cell)":{cell:{a:4.9,b:4.9,c:5.4,al:90,be:90,ga:120},sg:'P 1 (hexagonal cell demo)',symStr:P1,bond:true,
+       asym:[{el:'Si',x:0.47,y:0,z:0.333,B:1,occ:1},{el:'O',x:0.41,y:0.27,z:0.45,B:1.5,occ:1},{el:'O',x:0.14,y:0.72,z:0.21,B:1.5,occ:1}]},
+  },
+  "Small molecules":{
+    "Urea molecule (P1 demo)":{cell:{a:8,b:7,c:6,al:90,be:90,ga:90},sg:'P 1 (idealized geometry)',symStr:P1,bond:true,
+       asym:[{el:'C',x:0.5,y:0.5,z:0.5,B:3,occ:1},{el:'O',x:0.5,y:0.6786,z:0.5,B:3.5,occ:1},
+             {el:'N',x:0.6435,y:0.4014,z:0.5,B:4,occ:1},{el:'N',x:0.3565,y:0.4014,z:0.5,B:4,occ:1}]},
+  },
+  "Macromolecules (coming soon)":{
+    "— protein support is on the roadmap —":null,
+  },
+};
+const UPLOADED={};   // CIFs the user uploads land here under the "Uploaded CIF" category
+
+/* ---------- CIF parser ---------- */
+function parseCIF(text){
+  const lines=text.split(/\r?\n/);
+  const num=v=>parseFloat(String(v).replace(/\(.*?\)/g,''));
+  let c={a:10,b:10,c:10,al:90,be:90,ga:90}, sg='(from CIF)', symStr=[], aa=[];
+  let i=0;
+  const val1=ln=>ln.split(/\s+/).slice(1).join(' ');
+  while(i<lines.length){
+    let ln=lines[i].trim(); const low=ln.toLowerCase();
+    if(ln===''||ln[0]==='#'){i++;continue;}
+    if(low.startsWith('_cell_length_a')){c.a=num(val1(ln));i++;continue;}
+    if(low.startsWith('_cell_length_b')){c.b=num(val1(ln));i++;continue;}
+    if(low.startsWith('_cell_length_c')){c.c=num(val1(ln));i++;continue;}
+    if(low.startsWith('_cell_angle_alpha')){c.al=num(val1(ln));i++;continue;}
+    if(low.startsWith('_cell_angle_beta')){c.be=num(val1(ln));i++;continue;}
+    if(low.startsWith('_cell_angle_gamma')){c.ga=num(val1(ln));i++;continue;}
+    if(low.startsWith('_symmetry_space_group_name_h-m')||low.startsWith('_space_group_name_h-m')){sg=val1(ln).replace(/['"]/g,'').trim()||sg;i++;continue;}
+    if(low==='loop_'){
+      i++; const tags=[];
+      while(i<lines.length&&lines[i].trim()[0]==='_'){tags.push(lines[i].trim().toLowerCase());i++;}
+      const data=[];
+      while(i<lines.length){const dl=lines[i].trim();
+        if(dl===''||dl[0]==='_'||dl.toLowerCase()==='loop_'||dl[0]==='#'||dl.toLowerCase().startsWith('data_'))break;
+        data.push(lines[i]);i++;}
+      const isSym=tags.some(t=>t.includes('equiv_pos_as_xyz')||t.includes('symop_operation_xyz'));
+      if(isSym){
+        for(let d of data){d=d.trim();if(!d)continue;const m=d.match(/['"]([^'"]+)['"]/);
+          if(m)symStr.push(m[1]); else symStr.push(d.replace(/^\d+\s+/,''));}
+        continue;
+      }
+      const cx=tags.indexOf('_atom_site_fract_x'),cy=tags.indexOf('_atom_site_fract_y'),cz=tags.indexOf('_atom_site_fract_z');
+      if(cx>=0&&cy>=0&&cz>=0){
+        const cT=tags.indexOf('_atom_site_type_symbol'),cL=tags.indexOf('_atom_site_label'),
+              cO=tags.indexOf('_atom_site_occupancy'),cU=tags.findIndex(t=>t.includes('u_iso_or_equiv')),cB=tags.findIndex(t=>t.includes('b_iso_or_equiv'));
+        for(const d of data){const f=d.trim().split(/\s+/);if(f.length<=Math.max(cx,cy,cz))continue;
+          const el=normEl(cT>=0?f[cT]:(cL>=0?f[cL]:'C'));
+          const x=num(f[cx]),y=num(f[cy]),z=num(f[cz]);if(![x,y,z].every(isFinite))continue;
+          let B=cB>=0?num(f[cB]):(cU>=0?8*Math.PI*Math.PI*num(f[cU]):2.0);if(!isFinite(B))B=2.0;
+          let occ=cO>=0?num(f[cO]):1;if(!isFinite(occ))occ=1;
+          aa.push({el,x,y,z,B:Math.max(0,Math.min(60,B)),occ});}
+        continue;
+      }
+      continue;
+    }
+    i++;
+  }
+  if(symStr.length===0)symStr=['x,y,z'];
+  if(aa.length===0)throw new Error('No atoms (_atom_site_fract_*) found in CIF.');
+  return {cell:c,sg,symStr,asym:aa,bond:true,name:'Uploaded CIF'};
+}
+
+/* ---------- load ---------- */
+function renderElLegend(){
+  const els=[...new Set(asym.map(a=>a.el))];
+  document.getElementById('elLegend').innerHTML='<b>Atom colours:</b> '+els.map(e=>{
+    const hex='#'+elInfo(e).c.toString(16).padStart(6,'0');
+    return `<span style="display:inline-flex;align-items:center;gap:4px;margin:0 8px 2px 0">`
+      +`<span style="width:11px;height:11px;border-radius:50%;background:${hex};display:inline-block;border:1px solid #0006"></span>${e}</span>`;
+  }).join('');
+}
+function loadStructure(st){
+  cell={...st.cell}; sgName=st.sg||'P 1';
+  symops=st.symStr.map(parseSymop);
+  asym=st.asym.map(a=>({...a}));
+  buildCell(); expandSymmetry();
+  document.getElementById('cellBox').innerHTML=
+    `<b>${sgName}</b><br>a=${cell.a.toFixed(3)} b=${cell.b.toFixed(3)} c=${cell.c.toFixed(3)} Å<br>`
+    +`α=${cell.al.toFixed(2)} β=${cell.be.toFixed(2)} γ=${cell.ga.toFixed(2)}°<br>`
+    +`${symops.length} sym-ops · ${atoms.length} atoms/cell`;
+  document.getElementById('s_sg').textContent=sgName;
+  document.getElementById('showBonds').checked=!!st.bond;
+  sel=0; refreshAtomList(); rebuildStructure();
+}
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+function opt(sel,v,t){const o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
+const catSel=$('category'), presetSel=$('preset');
+Object.keys(CATALOG).forEach(c=>opt(catSel,c,c));
+function getCatMap(cat){return cat==='Uploaded CIF'?UPLOADED:(CATALOG[cat]||{});}
+function populatePresets(cat){presetSel.innerHTML='';Object.keys(getCatMap(cat)).forEach(n=>opt(presetSel,n,n));}
+function loadSelected(){
+  const st=getCatMap(catSel.value)[presetSel.value];
+  if(st)loadStructure(st);
+  else $('cellBox').innerHTML='<b>Coming soon</b><br>Protein / macromolecule loading (PDB, large space groups, cached |F|) is on the roadmap. For now pick Inorganic or Small molecules, or upload a CIF.';
+}
+catSel.addEventListener('change',()=>{populatePresets(catSel.value);loadSelected();});
+function refreshAtomList(){
+  const sl=$('atomSel');sl.innerHTML='';
+  asym.forEach((a,i)=>{const o=document.createElement('option');o.value=i;
+    o.textContent=`#${i} ${a.el} (${a.x.toFixed(3)}, ${a.y.toFixed(3)}, ${a.z.toFixed(3)})`;sl.appendChild(o);});
+  sl.value=Math.min(sel,asym.length-1); loadAtomEditor(); renderElLegend();
+}
+function loadAtomEditor(){
+  sel=+$('atomSel').value||0; const a=asym[sel]; if(!a)return;
+  $('el').value=a.el;$('ax').value=a.x;$('ay').value=a.y;$('az').value=a.z;
+  $('ab').value=a.B;$('ab_v').value=a.B.toFixed(1);
+  $('ao').value=a.occ;$('ao_v').value=a.occ.toFixed(2);
+}
+function commitAtom(){
+  const a=asym[sel];if(!a)return;
+  a.el=normEl($('el').value||'C');
+  a.x=+$('ax').value||0;a.y=+$('ay').value||0;a.z=+$('az').value||0;
+  a.B=+$('ab').value;a.occ=+$('ao').value;
+  $('ab_v').value=a.B.toFixed(1);$('ao_v').value=a.occ.toFixed(2);
+  expandSymmetry();
+  $('cellBox').innerHTML=$('cellBox').innerHTML.replace(/\d+ atoms\/cell/,atoms.length+' atoms/cell');
+  refreshAtomList(); rebuildStructure();
+}
+['el','ax','ay','az','ab','ao'].forEach(id=>$(id).addEventListener('input',commitAtom));
+$('atomSel').addEventListener('change',loadAtomEditor);
+$('addAtom').addEventListener('click',()=>{asym.push({el:'C',x:0.5,y:0.5,z:0.5,B:2,occ:1});sel=asym.length-1;expandSymmetry();refreshAtomList();rebuildStructure();});
+$('delAtom').addEventListener('click',()=>{if(asym.length>1){asym.splice(sel,1);sel=Math.max(0,sel-1);expandSymmetry();refreshAtomList();rebuildStructure();}});
+
+function bind(id,key,fmt,struct){
+  const r=$(id), n=$(id+'_v');
+  n.min=r.min;n.max=r.max;n.step=r.step;
+  const recompute=()=>struct?rebuildStructure():compute();
+  r.addEventListener('input',()=>{S[key]=+r.value;n.value=fmt?fmt(+r.value):r.value;recompute();});
+  n.addEventListener('input',()=>{const v=parseFloat(n.value);if(isNaN(v))return;const cv=Math.max(+r.min,Math.min(+r.max,v));S[key]=cv;r.value=cv;recompute();});
+  n.addEventListener('change',()=>{let v=parseFloat(n.value);if(isNaN(v))v=+r.value;v=Math.max(+r.min,Math.min(+r.max,v));S[key]=v;r.value=v;n.value=fmt?fmt(v):v;recompute();});
+  S[key]=+r.value; n.value=fmt?fmt(S[key]):r.value;
+}
+function linkAtomNum(id){const r=$(id),n=$(id+'_v');n.min=r.min;n.max=r.max;n.step=r.step;
+  n.addEventListener('input',()=>{let v=parseFloat(n.value);if(isNaN(v))return;v=Math.max(+r.min,Math.min(+r.max,v));r.value=v;commitAtom();});}
+bind('lam','lam',x=>x.toFixed(2),true);
+bind('dmin','dmin',x=>x.toFixed(2),true);
+bind('dist','dist',x=>x.toFixed(0),false);
+bind('phi','phi',x=>x.toFixed(1),false);
+bind('osc','osc',x=>x.toFixed(2),false);
+linkAtomNum('ab');linkAtomNum('ao');
+['showCopies','showBonds','showBeam','repMode'].forEach(id=>$(id).addEventListener('change',()=>{buildReal();compute();}));
+$('showPlanes').addEventListener('change',()=>{lastPlaneKey='';compute();});
+$('detLabels').addEventListener('change',()=>compute());
+$('superN').addEventListener('change',()=>{const N=+$('superN').value;orbReal.R=2.4+1.7*N;buildReal();place(camReal,orbReal);compute();});
+['ih','ik','il'].forEach(id=>$(id).addEventListener('input',updateInspector));
+presetSel.addEventListener('change',loadSelected);
+$('cifFile').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();rd.onload=()=>{try{const st=parseCIF(rd.result);st.name=f.name;
+    UPLOADED[f.name]=st;
+    if(![...catSel.options].some(o=>o.value==='Uploaded CIF'))opt(catSel,'Uploaded CIF','Uploaded CIF');
+    catSel.value='Uploaded CIF';populatePresets('Uploaded CIF');presetSel.value=f.name;loadStructure(st);
+  }catch(err){alert('CIF parse error: '+err.message);}};
+  rd.readAsText(f);});
+$('play').addEventListener('click',e=>{playing=!playing;e.target.innerHTML=playing?'&#10073;&#10073; Pause':'&#9654; Rotate';});
+$('acc').addEventListener('click',e=>{accumulate=!accumulate;e.target.style.background=accumulate?'#2f6f4f':'';e.target.style.color=accumulate?'#fff':'';});
+$('clr').addEventListener('click',()=>{recorded=[];compute();});
+$('reset').addEventListener('click',()=>{
+  playing=false;$('play').innerHTML='&#9654; Rotate';
+  S.phi=0;$('phi').value=0;$('phi_v').value='0.0';Qsetup.identity();
+  const N=+$('superN').value||1;
+  orbReal.az=0.7;orbReal.pol=1.05;orbReal.R=2.4+1.7*N;
+  orbRec.az=0.7;orbRec.pol=1.05;orbRec.R=4.0;
+  place(camReal,orbReal);place(camRec,orbRec);compute();});
+
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+  view=t.dataset.v; setHint();}));
+function setHint(){$('hint').innerHTML = view==='real'
+  ? 'Real space — drag to reorient the crystal (beam fixed); φ slider / Rotate spins the goniometer. Yellow = beam, red rays = diffracting now (2θ), cyan sheets = (hkl) planes reflecting this instant. Shift/right-drag orbits.'
+  : 'Reciprocal space — drag to reorient the crystal through the Ewald sphere (blue, r=1/λ); point brightness ∝ |F|, red = diffracting now. Shift/right-drag orbits.';}
+
+function resize(){const w=sceneEl.clientWidth,h=sceneEl.clientHeight;renderer.setSize(w,h);
+  camReal.aspect=w/h;camReal.updateProjectionMatrix();camRec.aspect=w/h;camRec.updateProjectionMatrix();
+  const dw=det.clientWidth;det.width=dw;det.height=dw;}
+window.addEventListener('resize',resize);
+function loop(){requestAnimationFrame(loop);
+  if(playing){S.phi=(S.phi+0.4)%360;$('phi').value=S.phi;$('phi_v').value=S.phi.toFixed(1);compute();}
+  if(view==='real')renderer.render(sReal,camReal);else renderer.render(sRec,camRec);}
+
+/* ---------- go ---------- */
+resize();place(camReal,orbReal);place(camRec,orbRec);setHint();
+catSel.value="Inorganic crystals";populatePresets("Inorganic crystals");presetSel.value="NaCl (rock salt)";
+loadStructure(CATALOG["Inorganic crystals"]["NaCl (rock salt)"]);loop();
+</script>
+</body>
+</html>

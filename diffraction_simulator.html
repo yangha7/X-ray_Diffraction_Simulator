@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ewald / Diffraction Simulator</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#c9d1d9;
+    --accent:#58a6ff; --hot:#ff5c57; --warm:#ffce54; --grid:#7d8590;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px}
+  #app{display:grid;grid-template-columns:270px 1fr 360px;grid-template-rows:100vh;height:100vh}
+  #controls{background:var(--panel);border-right:1px solid var(--line);padding:14px;overflow-y:auto}
+  #scene{position:relative}
+  #right{background:var(--panel);border-left:1px solid var(--line);padding:14px;overflow-y:auto}
+  h1{font-size:15px;margin:0 0 4px;color:#fff}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--grid);
+     margin:18px 0 8px;border-bottom:1px solid var(--line);padding-bottom:4px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 0}
+  .row label{flex:1;color:var(--txt)}
+  .row .val{width:62px;text-align:right;font-variant-numeric:tabular-nums;color:var(--accent)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  select,button{background:#21262d;color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:5px 8px;font-size:13px}
+  button{cursor:pointer}
+  button.primary{background:var(--accent);color:#06121f;border:none;font-weight:600}
+  .sub{color:var(--grid);font-size:12px;line-height:1.5}
+  canvas#det{width:100%;background:#05080d;border:1px solid var(--line);border-radius:8px;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .stat{display:flex;justify-content:space-between;margin:4px 0}
+  .stat b{color:#fff;font-variant-numeric:tabular-nums}
+  #hint{position:absolute;bottom:10px;left:12px;color:var(--grid);font-size:11px;
+    background:rgba(13,17,23,.6);padding:4px 8px;border-radius:6px}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- LEFT: controls -->
+  <div id="controls">
+    <h1>Ewald Construction</h1>
+    <div class="sub">Reciprocal lattice rotates through the Ewald sphere; spots appear where it intersects. Geometry is exact; intensities are schematic.</div>
+
+    <h2>Unit cell (&Aring;)</h2>
+    <div class="row"><label>a</label><input type="range" id="a" min="4" max="60" step="0.5" value="12"><span class="val" id="a_v"></span></div>
+    <div class="row"><label>b</label><input type="range" id="b" min="4" max="60" step="0.5" value="12"><span class="val" id="b_v"></span></div>
+    <div class="row"><label>c</label><input type="range" id="c" min="4" max="60" step="0.5" value="12"><span class="val" id="c_v"></span></div>
+    <div class="row"><label>&alpha;</label><input type="range" id="al" min="60" max="120" step="1" value="90"><span class="val" id="al_v"></span></div>
+    <div class="row"><label>&beta;</label><input type="range" id="be" min="60" max="120" step="1" value="90"><span class="val" id="be_v"></span></div>
+    <div class="row"><label>&gamma;</label><input type="range" id="ga" min="60" max="120" step="1" value="90"><span class="val" id="ga_v"></span></div>
+    <div class="row"><label>Lattice</label>
+      <select id="lat"><option value="P">P (primitive)</option><option value="I">I (body)</option><option value="F">F (face)</option><option value="C">C (base)</option></select>
+    </div>
+
+    <h2>Beam &amp; geometry</h2>
+    <div class="row"><label>&lambda; (&Aring;)</label><input type="range" id="lam" min="0.5" max="2.5" step="0.05" value="1.0"><span class="val" id="lam_v"></span></div>
+    <div class="row"><label>d<sub>min</sub> (&Aring;)</label><input type="range" id="dmin" min="1.2" max="6" step="0.1" value="2.0"><span class="val" id="dmin_v"></span></div>
+    <div class="row"><label>Distance (mm)</label><input type="range" id="dist" min="40" max="300" step="5" value="120"><span class="val" id="dist_v"></span></div>
+
+    <h2>Rotation</h2>
+    <div class="row"><label>&phi; (&deg;)</label><input type="range" id="phi" min="0" max="360" step="0.5" value="0"><span class="val" id="phi_v"></span></div>
+    <div class="row"><label>oscillation &Delta;&phi;</label><input type="range" id="osc" min="0" max="20" step="0.5" value="1.0"><span class="val" id="osc_v"></span></div>
+    <div class="row"><label>mosaicity band</label><input type="range" id="band" min="0.001" max="0.03" step="0.001" value="0.006"><span class="val" id="band_v"></span></div>
+    <div class="row" style="gap:6px">
+      <button id="play" class="primary" style="flex:1">&#9654; Rotate</button>
+      <button id="acc" style="flex:1">Accumulate</button>
+      <button id="clr">Clear</button>
+    </div>
+    <div class="sub" style="margin-top:8px">Drag the 3D view to orbit, scroll to zoom.</div>
+  </div>
+
+  <!-- CENTER: 3D scene -->
+  <div id="scene">
+    <div id="hint">Real / reciprocal space &mdash; blue sphere = Ewald sphere (r = 1/&lambda;), grey = reciprocal lattice, red = diffracting now</div>
+  </div>
+
+  <!-- RIGHT: detector + stats -->
+  <div id="right">
+    <h1>Detector</h1>
+    <canvas id="det" width="330" height="330"></canvas>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--hot)"></span>this still</span>
+      <span><span class="dot" style="background:var(--warm)"></span>accumulated</span>
+      <span><span class="dot" style="background:#2f6f4f"></span>res ring</span>
+    </div>
+    <h2>Live readout</h2>
+    <div class="stat"><span>Reflections (to d<sub>min</sub>)</span><b id="s_total">0</b></div>
+    <div class="stat"><span>Diffracting this &phi;</span><b id="s_active">0</b></div>
+    <div class="stat"><span>Recorded in &Delta;&phi;</span><b id="s_rec">0</b></div>
+    <div class="stat"><span>Edge resolution</span><b id="s_edge">&ndash;</b></div>
+    <div class="stat"><span>Max 2&theta;</span><b id="s_tt">&ndash;</b></div>
+    <h2>Try this</h2>
+    <div class="sub">1. Set &Delta;&phi;=0 &rarr; almost no spots (a still is measure-zero). Raise &Delta;&phi; &rarr; image fills in &mdash; that's why you collect wedges.<br><br>
+    2. Hit <b>Accumulate</b> and <b>Rotate</b> to build a full rotation dataset.<br><br>
+    3. Switch lattice P&rarr;I&rarr;F &mdash; watch systematic absences erase spots.<br><br>
+    4. Shrink &lambda; &rarr; Ewald sphere flattens, more reflections per still, finer resolution at the edge.</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+/* ---------- small vector helpers ---------- */
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const norm=(a)=>Math.hypot(a[0],a[1],a[2]);
+const scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s];
+const deg=Math.PI/180;
+function hash(h,k,l){const x=Math.sin(h*12.9898+k*78.233+l*37.719)*43758.5453;return x-Math.floor(x);}
+
+/* ---------- state ---------- */
+const P={a:12,b:12,c:12,al:90,be:90,ga:90,lat:'P',lam:1.0,dmin:2.0,dist:120,phi:0,osc:1.0,band:0.006};
+let refl=[];          // {h,k,l,p0:[x,y,z],I,res}
+let recorded=[];      // accumulated detector spots {x,y,I}
+let playing=false, accumulate=false;
+
+/* ---------- reciprocal basis & reflection list ---------- */
+function buildReciprocal(){
+  const {a,b,c,al,be,ga}=P;
+  const ca=Math.cos(al*deg),cb=Math.cos(be*deg),cg=Math.cos(ga*deg),sg=Math.sin(ga*deg);
+  const va=[a,0,0];
+  const vb=[b*cg,b*sg,0];
+  const cx=c*cb;
+  const cy=c*(ca-cb*cg)/sg;
+  const cz=c*Math.sqrt(Math.max(1e-9,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg))/sg;
+  const vc=[cx,cy,cz];
+  const V=dot(va,cross(vb,vc));
+  return {as:scl(cross(vb,vc),1/V), bs:scl(cross(vc,va),1/V), cs:scl(cross(va,vb),1/V)};
+}
+function allowed(h,k,l){
+  switch(P.lat){
+    case 'I': return (h+k+l)%2===0;
+    case 'F': return ((h%2===0)===(k%2===0))&&((k%2===0)===(l%2===0));
+    case 'C': return (h+k)%2===0;
+    default:  return true;
+  }
+}
+function buildReflections(){
+  const {as,bs,cs}=buildReciprocal();
+  const smax=1/P.dmin;
+  // index range from shortest reciprocal axis
+  const hmax=Math.ceil(smax/Math.min(norm(as),norm(bs),norm(cs)))+1;
+  refl=[];
+  for(let h=-hmax;h<=hmax;h++)
+   for(let k=-hmax;k<=hmax;k++)
+    for(let l=-hmax;l<=hmax;l++){
+      if(h===0&&k===0&&l===0) continue;
+      if(!allowed(h,k,l)) continue;
+      const p=[h*as[0]+k*bs[0]+l*cs[0], h*as[1]+k*bs[1]+l*cs[1], h*as[2]+k*bs[2]+l*cs[2]];
+      const s=norm(p);
+      if(s>smax) continue;
+      const I=(0.3+0.7*hash(h,k,l))*Math.exp(-s*s*2.2);
+      refl.push({h,k,l,p0:p,I,res:1/s});
+      if(refl.length>25000) return; // safety cap (perf): very large cells truncate at high angle
+    }
+}
+
+/* ---------- rotation about goniometer axis (lab y) ---------- */
+function rotY(p,phi){const c=Math.cos(phi),s=Math.sin(phi);return [c*p[0]+s*p[2],p[1],-s*p[0]+c*p[2]];}
+
+/* excitation error: signed distance of p from Ewald sphere.
+   beam +z, K=1/lam, sphere centre C=(0,0,-K). e = |p-C| - K */
+function excit(p,K){const dx=p[0],dy=p[1],dz=p[2]+K;return Math.hypot(dx,dy,dz)-K;}
+
+/* ---------- THREE setup ---------- */
+const sceneEl=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+sceneEl.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0d1117);
+const camera=new THREE.PerspectiveCamera(45,1,0.001,100);
+
+// custom orbit camera
+let camR=4, camAz=0.7, camPol=1.1;
+const target=new THREE.Vector3(0,0,0);
+function placeCam(){
+  camPol=Math.max(0.05,Math.min(Math.PI-0.05,camPol));
+  camera.position.set(
+    target.x+camR*Math.sin(camPol)*Math.cos(camAz),
+    target.y+camR*Math.cos(camPol),
+    target.z+camR*Math.sin(camPol)*Math.sin(camAz));
+  camera.lookAt(target);
+}
+(function drag(){
+  let down=false,px=0,py=0;
+  const el=renderer.domElement;
+  el.addEventListener('mousedown',e=>{down=true;px=e.clientX;py=e.clientY;});
+  window.addEventListener('mouseup',()=>down=false);
+  window.addEventListener('mousemove',e=>{if(!down)return;camAz-=(e.clientX-px)*0.01;camPol-=(e.clientY-py)*0.01;px=e.clientX;py=e.clientY;placeCam();});
+  el.addEventListener('wheel',e=>{e.preventDefault();camR*=(1+Math.sign(e.deltaY)*0.1);camR=Math.max(0.6,Math.min(30,camR));placeCam();},{passive:false});
+})();
+
+// Ewald sphere (rebuilt when lambda changes)
+let ewald=null;
+function buildEwald(K){
+  if(ewald)scene.remove(ewald);
+  const g=new THREE.SphereGeometry(K,40,28);
+  const m=new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.18});
+  ewald=new THREE.Mesh(g,m); ewald.position.set(0,0,-K); scene.add(ewald);
+}
+// incident beam + origin marker + rotation axis
+const beamMat=new THREE.LineBasicMaterial({color:0xffce54});
+let beam=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,0)]),beamMat);
+scene.add(beam);
+const originDot=new THREE.Mesh(new THREE.SphereGeometry(0.02,12,12),new THREE.MeshBasicMaterial({color:0xffffff}));
+scene.add(originDot);
+const axis=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-1.5,0),new THREE.Vector3(0,1.5,0)]),new THREE.LineBasicMaterial({color:0x30363d}));
+scene.add(axis);
+
+// reciprocal lattice points + active rays (rebuilt when reflection set changes)
+let pts=null, rays=null;
+function buildSceneObjects(){
+  if(pts)scene.remove(pts);
+  if(rays)scene.remove(rays);
+  const n=refl.length;
+  const pos=new Float32Array(n*3), col=new Float32Array(n*3);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  pts=new THREE.Points(geo,new THREE.PointsMaterial({size:0.045,vertexColors:true,sizeAttenuation:true}));
+  scene.add(pts);
+  const rgeo=new THREE.BufferGeometry();
+  rgeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*6),3));
+  rays=new THREE.LineSegments(rgeo,new THREE.LineBasicMaterial({color:0xff5c57,transparent:true,opacity:0.85}));
+  scene.add(rays);
+}
+
+/* ---------- detector drawing ---------- */
+const det=document.getElementById('det'), dctx=det.getContext('2d');
+function mm2px(mm,half){return det.width/2 + mm/half*(det.width/2);}
+let detHalf=80; // mm half-width shown
+function drawDetector(activeSpots){
+  const W=det.width,H=det.height;
+  dctx.fillStyle='#05080d';dctx.fillRect(0,0,W,H);
+  // resolution rings
+  const K=1/P.lam;
+  dctx.strokeStyle='#2f6f4f';dctx.setLineDash([3,4]);dctx.fillStyle='#3f8f6f';dctx.font='10px sans-serif';
+  for(const d of [P.dmin, P.dmin*1.5, P.dmin*2.5, P.dmin*4]){
+    const theta=Math.asin(Math.min(0.999,P.lam/(2*d)));
+    const r_mm=P.dist*Math.tan(2*theta);
+    const r_px=r_mm/detHalf*(W/2);
+    if(r_px<W/2){dctx.beginPath();dctx.arc(W/2,H/2,r_px,0,7);dctx.stroke();
+      dctx.fillText(d.toFixed(1)+'Å',W/2+r_px*0.7,H/2-r_px*0.7);}
+  }
+  dctx.setLineDash([]);
+  // accumulated (warm)
+  for(const s of recorded){
+    const x=mm2px(s.x,detHalf),y=mm2px(-s.y,detHalf);
+    if(x<0||x>W||y<0||y>H)continue;
+    dctx.fillStyle='rgba(255,206,84,'+(0.25+0.6*s.I)+')';
+    dctx.beginPath();dctx.arc(x,y,1.2+2.6*Math.sqrt(s.I),0,7);dctx.fill();
+  }
+  // current still (hot)
+  for(const s of activeSpots){
+    const x=mm2px(s.x,detHalf),y=mm2px(-s.y,detHalf);
+    if(x<0||x>W||y<0||y>H)continue;
+    dctx.fillStyle='rgba(255,92,87,'+(0.4+0.6*s.I)+')';
+    dctx.beginPath();dctx.arc(x,y,1.4+3*Math.sqrt(s.I),0,7);dctx.fill();
+  }
+  // beam centre
+  dctx.strokeStyle='#888';dctx.beginPath();dctx.moveTo(W/2-6,H/2);dctx.lineTo(W/2+6,H/2);
+  dctx.moveTo(W/2,H/2-6);dctx.lineTo(W/2,H/2+6);dctx.stroke();
+}
+
+/* project a (rotated) reciprocal point to detector mm; returns {x,y} or null */
+function project(pr,K){
+  const sx=pr[0],sy=pr[1],sz=pr[2]+K; // diffracted dir = p - C
+  if(sz<=1e-6) return null;            // not forward-scattered
+  const t=P.dist/sz;
+  return {x:sx*t,y:sy*t};
+}
+
+/* ---------- main compute + render ---------- */
+function compute(){
+  const K=1/P.lam;
+  const phi=P.phi*deg, half=P.osc*deg/2;
+  const posAttr=pts.geometry.attributes.position.array;
+  const colAttr=pts.geometry.attributes.color.array;
+  const rayArr=rays.geometry.attributes.position.array;
+  let active=0, rec=0, rayN=0;
+  const activeSpots=[];
+  let maxTT=0;
+  for(let i=0;i<refl.length;i++){
+    const r=refl[i];
+    const pr=rotY(r.p0,phi);
+    posAttr[i*3]=pr[0];posAttr[i*3+1]=pr[1];posAttr[i*3+2]=pr[2];
+    const e=excit(pr,K);
+    const on=Math.abs(e)<P.band;
+    if(on){
+      colAttr[i*3]=1;colAttr[i*3+1]=0.36;colAttr[i*3+2]=0.34; // hot
+      active++;
+      // diffracted ray: from sphere centre C=(0,0,-K) through pr, extended
+      const dir=[pr[0]-0,pr[1]-0,pr[2]+K];const dl=norm(dir);
+      const ex=[pr[0]+dir[0]/dl*0.4,pr[1]+dir[1]/dl*0.4,pr[2]+dir[2]/dl*0.4];
+      rayArr[rayN++]=0;rayArr[rayN++]=0;rayArr[rayN++]=-K;
+      rayArr[rayN++]=ex[0];rayArr[rayN++]=ex[1];rayArr[rayN++]=ex[2];
+    }else{
+      const g=0.45; colAttr[i*3]=g;colAttr[i*3+1]=g;colAttr[i*3+2]=g+0.08;
+    }
+    // rotation image: did the reflection cross the sphere within [phi-half, phi+half]?
+    if(P.osc>0){
+      const e1=excit(rotY(r.p0,phi-half),K);
+      const e2=excit(rotY(r.p0,phi+half),K);
+      if(e1*e2<=0){
+        const sp=project(pr,K);
+        if(sp){activeSpots.push({x:sp.x,y:sp.y,I:r.I});rec++;
+          const tt=Math.atan2(Math.hypot(sp.x,sp.y),P.dist)/deg;if(tt>maxTT)maxTT=tt;
+          if(accumulate)recorded.push({x:sp.x,y:sp.y,I:r.I});}
+      }
+    } else if(on){
+      const sp=project(pr,K);
+      if(sp){activeSpots.push({x:sp.x,y:sp.y,I:r.I});}
+    }
+  }
+  // clear unused ray slots
+  for(let j=rayN;j<rayArr.length;j++)rayArr[j]=0;
+  pts.geometry.attributes.position.needsUpdate=true;
+  pts.geometry.attributes.color.needsUpdate=true;
+  rays.geometry.attributes.position.needsUpdate=true;
+  // beam line C -> origin
+  beam.geometry.setFromPoints([new THREE.Vector3(0,0,-K),new THREE.Vector3(0,0,0)]);
+  // detector
+  if(accumulate&&recorded.length>60000)recorded.splice(0,recorded.length-60000);
+  drawDetector(activeSpots);
+  // stats
+  document.getElementById('s_total').textContent=refl.length;
+  document.getElementById('s_active').textContent=active;
+  document.getElementById('s_rec').textContent=rec;
+  const thetaEdge=Math.atan2(detHalf,P.dist)/2;
+  const dEdge=P.lam/(2*Math.sin(thetaEdge));
+  document.getElementById('s_edge').textContent=dEdge.toFixed(2)+' Å';
+  document.getElementById('s_tt').textContent=(2*thetaEdge/deg).toFixed(1)+'°';
+}
+
+function rebuildAll(){buildReflections();buildSceneObjects();buildEwald(1/P.lam);compute();}
+
+/* ---------- UI wiring ---------- */
+function bind(id,key,fmt){
+  const el=document.getElementById(id), v=document.getElementById(id+'_v');
+  const upd=()=>{P[key]=parseFloat(el.value);if(v)v.textContent=fmt?fmt(P[key]):el.value;};
+  el.addEventListener('input',()=>{upd();
+    if(['a','b','c','al','be','ga','dmin','lam'].includes(id))rebuildAll();else compute();});
+  upd();
+}
+bind('a','a');bind('b','b');bind('c','c');
+bind('al','al');bind('be','be');bind('ga','ga');
+bind('lam','lam',x=>x.toFixed(2));bind('dmin','dmin',x=>x.toFixed(1));
+bind('dist','dist',x=>x.toFixed(0));
+bind('phi','phi',x=>x.toFixed(1));bind('osc','osc',x=>x.toFixed(1));
+bind('band','band',x=>x.toFixed(3));
+document.getElementById('lat').addEventListener('change',e=>{P.lat=e.target.value;rebuildAll();});
+document.getElementById('play').addEventListener('click',e=>{playing=!playing;e.target.innerHTML=playing?'&#10073;&#10073; Pause':'&#9654; Rotate';});
+document.getElementById('acc').addEventListener('click',e=>{accumulate=!accumulate;e.target.style.background=accumulate?'#2f6f4f':'';e.target.style.color=accumulate?'#fff':'';});
+document.getElementById('clr').addEventListener('click',()=>{recorded=[];compute();});
+
+/* ---------- resize ---------- */
+function resize(){
+  const w=sceneEl.clientWidth,h=sceneEl.clientHeight;
+  renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+  const dw=det.clientWidth;det.width=dw;det.height=dw;
+}
+window.addEventListener('resize',resize);
+
+/* ---------- loop ---------- */
+function loop(){
+  requestAnimationFrame(loop);
+  if(playing){
+    P.phi=(P.phi+0.4)%360;
+    const sl=document.getElementById('phi');sl.value=P.phi;
+    document.getElementById('phi_v').textContent=P.phi.toFixed(1);
+    compute();
+  }
+  renderer.render(scene,camera);
+}
+
+/* ---------- go ---------- */
+resize();placeCam();rebuildAll();loop();
+</script>
+</body>
+</html>
