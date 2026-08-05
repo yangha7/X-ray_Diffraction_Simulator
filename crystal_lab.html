@@ -49,6 +49,8 @@
   .chk{display:flex;align-items:center;gap:6px;margin:6px 0}
   #hint{position:absolute;bottom:8px;left:10px;color:var(--grid);font-size:11px;
     background:rgba(13,17,23,.65);padding:4px 8px;border-radius:6px;max-width:92%}
+  .sceneBtn{position:absolute;top:8px;right:10px;z-index:5;font-size:12px;padding:5px 9px;
+    background:rgba(13,17,23,.72);border:1px solid var(--line);color:var(--txt);border-radius:6px;cursor:pointer}
   .fres{font-variant-numeric:tabular-nums}
   code{background:#21262d;padding:1px 4px;border-radius:4px;color:#e6c07b}
 </style>
@@ -63,8 +65,8 @@
     <h2>Structure</h2>
     <select id="category" class="full" style="margin-bottom:6px"></select>
     <select id="preset" class="full"></select>
-    <label class="filebtn"><input type="file" id="cifFile" accept=".cif,.txt" style="display:none">
-      <button class="sm" style="width:100%" onclick="document.getElementById('cifFile').click()">⬆ Upload CIF…</button></label>
+    <label class="filebtn"><input type="file" id="cifFile" accept=".cif,.mmcif,.pdb,.ent,.txt" style="display:none">
+      <button class="sm" style="width:100%" onclick="document.getElementById('cifFile').click()">⬆ Upload PDB / CIF…</button></label>
     <div id="cellBox"></div>
     <div id="elLegend" class="sub" style="margin-top:6px"></div>
     <div class="row" style="margin-top:8px"><label>Cells shown</label>
@@ -91,10 +93,11 @@
 
     <h2>Beam &amp; rotation</h2>
     <div class="row"><label>&lambda; (&Aring;)</label><input type="range" id="lam" min="0.4" max="2.0" step="0.02" value="1.0"><input type="number" class="val" id="lam_v"></div>
-    <div class="row"><label>d<sub>min</sub> (&Aring;)</label><input type="range" id="dmin" min="0.8" max="4" step="0.05" value="1.4"><input type="number" class="val" id="dmin_v"></div>
+    <div class="row"><label>d<sub>min</sub> (&Aring;)</label><input type="range" id="dmin" min="0.8" max="4" step="0.05" value="1.0"><input type="number" class="val" id="dmin_v"></div>
     <div class="row"><label>distance (mm)</label><input type="range" id="dist" min="40" max="300" step="5" value="100"><input type="number" class="val" id="dist_v"></div>
     <div class="row"><label>&phi; (&deg;)</label><input type="range" id="phi" min="0" max="360" step="0.5" value="0"><input type="number" class="val" id="phi_v"></div>
-    <div class="row"><label>oscillation &Delta;&phi;</label><input type="range" id="osc" min="0" max="20" step="0.05" value="2"><input type="number" class="val" id="osc_v"></div>
+    <div class="row"><label>oscillation &Delta;&phi;</label><input type="range" id="osc" min="0" max="20" step="0.05" value="1"><input type="number" class="val" id="osc_v"></div>
+    <div class="row"><label>spot contrast &darr;=boost</label><input type="range" id="contrast" min="0.3" max="1" step="0.05" value="1"><input type="number" class="val" id="contrast_v"></div>
     <div class="row" style="gap:6px">
       <button id="play" class="primary" style="flex:1">&#9654; Rotate</button>
       <button id="acc" style="flex:1">Accumulate</button>
@@ -111,7 +114,7 @@
       <div class="tab on" data-v="real">Real space (crystal)</div>
       <div class="tab" data-v="recip">Reciprocal / Ewald</div>
     </div>
-    <div id="scene"><div id="hint"></div></div>
+    <div id="scene"><button id="planesBtn2" class="sceneBtn">▦ Bragg planes: on</button><div id="hint"></div></div>
   </div>
 
   <!-- RIGHT -->
@@ -123,7 +126,8 @@
       <span><span class="dot" style="background:var(--warm)"></span>accumulated</span>
       <span><span class="dot" style="background:#2f6f4f"></span>res ring</span>
     </div>
-    <div class="chk" style="margin-top:8px"><input type="checkbox" id="detLabels"><label for="detLabels">Show hkl labels on spots</label></div>
+    <div class="chk" style="margin-top:8px"><input type="checkbox" id="detLog"><label for="detLog"><b>Log-scale intensity</b> (reveal weak/high-res spots)</label></div>
+    <div class="chk"><input type="checkbox" id="detLabels"><label for="detLabels">Show hkl labels on spots</label></div>
 
     <h2>Bragg condition — live</h2>
     <div class="sub" style="margin-bottom:6px">Strongest reflection diffracting right now (rotate to watch it change):</div>
@@ -153,9 +157,10 @@
 
     <h2>Notes</h2>
     <div class="sub">
-      • Built-in molecular example uses idealized geometry; for real work <b>upload a CIF</b> (cell + symmetry + atoms are read automatically).<br>
-      • Intensities are |F|² with an approximate (Z·Gaussian) form factor + B-factor; absences are physically correct.<br>
-      • Edit the asymmetric unit and watch the whole pattern respond.
+      • <b>Upload PDB / CIF / mmCIF</b> — cell, symmetry, and atoms are read automatically (PDB uses CRYST1 + REMARK 290; coordinates converted to fractional).<br>
+      • Crambin (1CRN) is a real deposited protein loaded with full-cell symmetry packing.<br>
+      • Proteins compute |F|² once at coarse d<sub>min</sub> and render as dots; lower d<sub>min</sub> for more spots (slower).<br>
+      • Intensities are |F|² with an approximate (Z·Gaussian) form factor + B-factor; absences are physically correct.
     </div>
   </div>
 </div>
@@ -213,15 +218,18 @@ let asym=[];                 // editable asymmetric unit
 let atoms=[];                // full-cell atoms (expanded)
 let Mcell=[[1,0,0],[0,1,0],[0,0,1]], recip={as:[1,0,0],bs:[0,1,0],cs:[0,0,1]}, rScale=1, cellVol=1;
 
-function buildCell(){
-  const {a,b,c,al,be,ga}=cell;
+function recipOf(cl){                           // reciprocal basis (Å^-1) + cell matrix from a,b,c,α,β,γ
+  const {a,b,c,al,be,ga}=cl;
   const ca=Math.cos(al*deg),cb=Math.cos(be*deg),cg=Math.cos(ga*deg),sg=Math.sin(ga*deg);
   const vf=Math.sqrt(Math.max(1e-9,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
   const ax=[a,0,0], bx=[b*cg,b*sg,0], cx=[c*cb, c*(ca-cb*cg)/sg, c*vf/sg];
-  Mcell=[ax,bx,cx];                            // columns = cell vectors; cart = u0*ax+u1*bx+u2*cx
-  cellVol=a*b*c*vf;
-  recip={as:scl(cross(bx,cx),1/cellVol), bs:scl(cross(cx,ax),1/cellVol), cs:scl(cross(ax,bx),1/cellVol)};
-  rScale=1/Math.max(a,b,c);
+  const V=a*b*c*vf;
+  return {as:scl(cross(bx,cx),1/V), bs:scl(cross(cx,ax),1/V), cs:scl(cross(ax,bx),1/V), M:[ax,bx,cx], V};
+}
+function buildCell(){
+  const r=recipOf(cell);
+  Mcell=r.M; cellVol=r.V; recip={as:r.as,bs:r.bs,cs:r.cs};
+  rScale=1/Math.max(cell.a,cell.b,cell.c);
 }
 function f2c(u){return [u[0]*Mcell[0][0]+u[1]*Mcell[1][0]+u[2]*Mcell[2][0],
                         u[0]*Mcell[0][1]+u[1]*Mcell[1][1]+u[2]*Mcell[2][1],
@@ -243,7 +251,7 @@ function expandSymmetry(){
 }
 
 /* ---------- live state ---------- */
-const S={lam:1.0, dmin:1.4, dist:100, phi:0, osc:2};
+const S={lam:1.0, dmin:1.0, dist:100, phi:0, osc:1, contrast:1.0};
 let refl=[];
 let recorded=[], playing=false, accumulate=false, view='real', sel=0, Imax=1;
 const FORMC=2.5;
@@ -262,16 +270,20 @@ function Fhkl(h,k,l){
 function buildReflections(){
   const smax=1/S.dmin;
   const hm=Math.ceil(smax/norm(recip.as))+1, km=Math.ceil(smax/norm(recip.bs))+1, lm=Math.ceil(smax/norm(recip.cs))+1;
-  refl=[]; Imax=1e-9;
+  const CAP=250000, CAND_MAX=400000;
+  // 1) candidate reflections inside the resolution sphere (cheap: geometry only, no structure factor)
+  let list=[];
+  outer:
   for(let h=-hm;h<=hm;h++)for(let k=-km;k<=km;k++)for(let l=-lm;l<=lm;l++){
     if(!h&&!k&&!l)continue;
     const ps=pstar(h,k,l), pl=norm(ps);
-    if(pl>smax)continue;
-    const F=Fhkl(h,k,l);
-    refl.push({h,k,l,p0:ps,I:F.I});
-    if(F.I>Imax)Imax=F.I;
-    if(refl.length>30000)return;
+    if(pl<=smax){list.push([h,k,l,ps,pl]); if(list.length>=CAND_MAX)break outer;}
   }
+  // 2) if over budget, keep the lowest-angle reflections → a CLEAN resolution sphere (not a lopsided hkl cut)
+  if(list.length>CAP){list.sort((a,b)=>a[4]-b[4]); list.length=CAP;}
+  // 3) structure factors for the kept reflections
+  refl=[]; Imax=1e-9;
+  for(const c of list){const I=Fhkl(c[0],c[1],c[2]).I; refl.push({h:c[0],k:c[1],l:c[2],p0:c[3],I}); if(I>Imax)Imax=I;}
 }
 
 /* ---------- THREE: one renderer, two scenes ---------- */
@@ -286,8 +298,8 @@ const dlight=new THREE.DirectionalLight(0xffffff,0.8); dlight.position.set(3,5,4
 
 const camReal=new THREE.PerspectiveCamera(45,1,0.001,100);
 const camRec =new THREE.PerspectiveCamera(45,1,0.001,100);
-const orbReal={R:4.0,az:0.7,pol:1.05,tx:0,ty:0,tz:0};
-const orbRec ={R:4.0,az:0.7,pol:1.05,tx:0,ty:0,tz:0};
+const orbReal={R:4.0,az:Math.PI,pol:1.05,tx:0,ty:0,tz:0};   // az=π puts the beam (+z) horizontal, left→right
+const orbRec ={R:4.0,az:Math.PI,pol:1.05,tx:0,ty:0,tz:0};
 const Qsetup=new THREE.Quaternion();
 const _v=new THREE.Vector3(),_yA=new THREE.Vector3(0,1,0),_xA=new THREE.Vector3(1,0,0);
 const _qgon=new THREE.Quaternion(),_qtot=new THREE.Quaternion(),_dq=new THREE.Quaternion(),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion();
@@ -444,7 +456,7 @@ let ewald=null,pts=null,rays=null;
 const beam=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),new THREE.LineBasicMaterial({color:0xffce54}));
 sRec.add(beam);
 sRec.add(new THREE.Mesh(new THREE.SphereGeometry(0.012,12,12),new THREE.MeshBasicMaterial({color:0xffffff})));
-sRec.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-1.5,0),new THREE.Vector3(0,1.5,0)]),new THREE.LineBasicMaterial({color:0x30363d})));
+sRec.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-1.6,0,0),new THREE.Vector3(1.6,0,0)]),new THREE.LineBasicMaterial({color:0x30363d})));  // goniometer axis = x
 function buildEwald(K){if(ewald)sRec.remove(ewald);
   ewald=new THREE.Mesh(new THREE.SphereGeometry(K,40,28),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
   ewald.position.set(0,0,-K); sRec.add(ewald);}
@@ -464,9 +476,10 @@ function buildRecipPoints(){
 
 /* ---------- detector ---------- */
 const det=document.getElementById('det'),dctx=det.getContext('2d');
-let detHalf=80;
+let detHalf=175;   // larger flat panel: reaches ~1 Å at the default crystal-to-detector distance
 function drawDetector(spots){
-  const W=det.width,H=det.height, detLabels=document.getElementById('detLabels').checked;
+  const W=det.width,H=det.height, detLabels=document.getElementById('detLabels').checked, logOn=document.getElementById('detLog').checked;
+  const bviz=s=>{if(!logOn)return s.b;const raw=(s.braw!==undefined?s.braw:s.b);return Math.max(0.05,Math.min(1,(Math.log10(raw*raw)+5)/5));};  // 5-decade log of intensity
   dctx.fillStyle='#05080d';dctx.fillRect(0,0,W,H);
   dctx.strokeStyle='#2f6f4f';dctx.setLineDash([3,4]);dctx.fillStyle='#3f8f6f';dctx.font='10px sans-serif';
   for(const d of [S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3]){
@@ -475,25 +488,27 @@ function drawDetector(spots){
   }
   dctx.setLineDash([]);
   const m2p=mm=>W/2+mm/detHalf*(W/2);
-  for(const s of recorded){const x=m2p(s.x),y=m2p(-s.y);if(x<0||x>W||y<0||y>H)continue;
-    dctx.fillStyle='rgba(255,206,84,'+(0.2+0.6*s.b)+')';dctx.beginPath();dctx.arc(x,y,1+2.6*s.b,0,7);dctx.fill();}
+  for(const s of recorded){const x=m2p(s.x),y=m2p(-s.y);if(x<0||x>W||y<0||y>H)continue;const bb=bviz(s);
+    dctx.fillStyle='rgba(255,206,84,'+(0.2+0.6*bb)+')';dctx.beginPath();dctx.arc(x,y,1+2.6*bb,0,7);dctx.fill();}
   dctx.font='9px sans-serif';dctx.textAlign='left';dctx.textBaseline='alphabetic';let lbl=0;
-  for(const s of spots){const x=m2p(s.x),y=m2p(-s.y);if(x<0||x>W||y<0||y>H)continue;
-    dctx.fillStyle='rgba(255,92,87,'+(0.35+0.6*s.b)+')';dctx.beginPath();dctx.arc(x,y,1.3+3*s.b,0,7);dctx.fill();
-    if(detLabels&&s.b>0.3&&lbl<40){dctx.fillStyle='rgba(225,240,255,0.92)';dctx.fillText(`${s.h} ${s.k} ${s.l}`,x+4,y-3);lbl++;}}
+  for(const s of spots){const x=m2p(s.x),y=m2p(-s.y);if(x<0||x>W||y<0||y>H)continue;const bb=bviz(s);
+    dctx.fillStyle='rgba(255,92,87,'+(0.35+0.6*bb)+')';dctx.beginPath();dctx.arc(x,y,1.3+3*bb,0,7);dctx.fill();
+    if(detLabels&&bb>0.3&&lbl<40){dctx.fillStyle='rgba(225,240,255,0.92)';dctx.fillText(`${s.h} ${s.k} ${s.l}`,x+4,y-3);lbl++;}}
   dctx.strokeStyle='#888';dctx.beginPath();dctx.moveTo(W/2-6,H/2);dctx.lineTo(W/2+6,H/2);dctx.moveTo(W/2,H/2-6);dctx.lineTo(W/2,H/2+6);dctx.stroke();
 }
 
 /* ---------- per-frame compute ---------- */
-function rotY(p,phi){const c=Math.cos(phi),s=Math.sin(phi);return[c*p[0]+s*p[2],p[1],-s*p[0]+c*p[2]];}
+function rotGon(p,phi){const c=Math.cos(phi),s=Math.sin(phi);return[p[0],c*p[1]-s*p[2],s*p[1]+c*p[2]];}  // goniometer spindle = x axis (horizontal, ⟂ beam)
 function excit(p,K){return Math.hypot(p[0],p[1],p[2]+K)-K;}
+function excitG(ps,c,s,K){return Math.hypot(ps[0],c*ps[1]-s*ps[2],s*ps[1]+c*ps[2]+K)-K;}  // excitation after x-rotation, no allocation
 function project(pr,K){const sz=pr[2]+K;if(sz<=1e-6)return null;const t=S.dist/sz;return{x:pr[0]*t,y:pr[1]*t};}
 function compute(){
   const K=1/S.lam,phi=S.phi*deg,half=S.osc*deg/2;
+  const cP=Math.cos(phi),sP=Math.sin(phi),cM=Math.cos(phi-half),sM=Math.sin(phi-half),cQ=Math.cos(phi+half),sQ=Math.sin(phi+half);
   const pos=pts.geometry.attributes.position.array,col=pts.geometry.attributes.color.array;
   const ra=rays.geometry.attributes.position.array;
   let active=0,rayN=0,best=null; const spots=[]; const band=0.008;
-  _qgon.setFromAxisAngle(_yA,phi);_qtot.copy(_qgon).multiply(Qsetup);
+  _qgon.setFromAxisAngle(_xA,phi);_qtot.copy(_qgon).multiply(Qsetup);   // goniometer(φ, about x) ∘ mounting
   if(realGroup)realGroup.quaternion.copy(_qtot);
   planeGroup.quaternion.copy(_qtot);
   const rr=realRays?realRays.geometry.attributes.position.array:null;
@@ -501,26 +516,27 @@ function compute(){
   for(let i=0;i<refl.length;i++){
     const r=refl[i];
     const ps=applyQ(r.p0,Qsetup);
-    const pr=rotY(ps,phi);
+    const pr=[ps[0],cP*ps[1]-sP*ps[2],sP*ps[1]+cP*ps[2]];
     pos[i*3]=pr[0];pos[i*3+1]=pr[1];pos[i*3+2]=pr[2];
     const b=Math.sqrt(r.I/Imax);
+    const bd=S.contrast>=0.999?b:Math.pow(b,S.contrast);   // display brightness (contrast<1 boosts weak high-res spots, like log-scaling an image)
     const e=excit(pr,K), on=Math.abs(e)<band;
     let rec=false;                                   // "is this reflection diffracting in this still / wedge?"
-    if(b>0.02){
-      if(S.osc>0){const e1=excit(rotY(ps,phi-half),K),e2=excit(rotY(ps,phi+half),K);rec=(e1*e2<=0)||on;}
+    if(bd>0.02){
+      if(S.osc>0){const e1=excitG(ps,cM,sM,K),e2=excitG(ps,cQ,sQ,K);rec=(e1*e2<=0)||on;}
       else rec=on;
     }
     if(rec){                                         // one condition drives ray + reciprocal highlight + plane + spot
-      col[i*3]=1;col[i*3+1]=0.36*b+0.1;col[i*3+2]=0.34*b+0.05;active++;
+      col[i*3]=1;col[i*3+1]=0.36*bd+0.1;col[i*3+2]=0.34*bd+0.05;active++;
       const dir=[pr[0],pr[1],pr[2]+K],dl=norm(dir);
       ra[rayN++]=0;ra[rayN++]=0;ra[rayN++]=-K;
       ra[rayN++]=pr[0]+dir[0]/dl*0.4;ra[rayN++]=pr[1]+dir[1]/dl*0.4;ra[rayN++]=pr[2]+dir[2]/dl*0.4;
       if(rr){rr[rrN++]=0;rr[rrN++]=0;rr[rrN++]=0;rr[rrN++]=dir[0]/dl*Lr;rr[rrN++]=dir[1]/dl*Lr;rr[rrN++]=dir[2]/dl*Lr;}
       const dsp=1/norm(r.p0);
-      if(!best||b>best.b)best={b,d:dsp,h:r.h,k:r.k,l:r.l};       // strongest diffracting reflection → plane + readout
+      if(!best||bd>best.b)best={b:bd,d:dsp,h:r.h,k:r.k,l:r.l};    // strongest diffracting reflection → plane + readout
       const sp=project(pr,K);                                    // spot shows only if the beam reaches the detector face
-      if(sp){spots.push({x:sp.x,y:sp.y,b,d:dsp,h:r.h,k:r.k,l:r.l});if(accumulate)recorded.push({x:sp.x,y:sp.y,b});}
-    }else{const g=0.10+0.5*b;col[i*3]=g*0.8;col[i*3+1]=g*0.8;col[i*3+2]=g;}
+      if(sp){spots.push({x:sp.x,y:sp.y,b:bd,braw:b,d:dsp,h:r.h,k:r.k,l:r.l});if(accumulate)recorded.push({x:sp.x,y:sp.y,b:bd,braw:b});}
+    }else{const g=0.10+0.5*bd;col[i*3]=g*0.8;col[i*3+1]=g*0.8;col[i*3+2]=g;}
   }
   for(let j=rayN;j<ra.length;j++)ra[j]=0;
   pts.geometry.attributes.position.needsUpdate=true;
@@ -571,6 +587,11 @@ function rebuildStructure(){buildReflections();buildReal();buildRecipPoints();bu
 const FCEN=['x,y,z','x+1/2,y+1/2,z','x+1/2,y,z+1/2','x,y+1/2,z+1/2'];   // F-centering
 const ICEN=['x,y,z','x+1/2,y+1/2,z+1/2'];                               // I-centering
 const P1=['x,y,z'];
+function unpackAtoms(s){return s.split('|').map(t=>{const p=t.split(' ');return {el:p[0],x:+p[1],y:+p[2],z:+p[3],B:+p[4],occ:1};});}
+// Crambin 1CRN — real deposited coordinates (327 atoms), converted to fractional. Space group P2₁.
+const CRAMBIN_PACKED="N 0.4174 0.7560 0.1610 13.8|C 0.4157 0.6855 0.1926 10.8|C 0.3846 0.6839 0.2280 9.2|O 0.3746 0.7413 0.2484 9.8|C 0.4454 0.6811 0.2370 13.0|O 0.4735 0.6879 0.1982 15.1|C 0.4452 0.6191 0.2800 14.2|N 0.3707 0.6196 0.2338 7.8|C 0.3403 0.6150 0.2694 8.3|C 0.3482 0.5783 0.3277 5.8|O 0.3685 0.5288 0.3305 6.9|C 0.3126 0.5743 0.2336 10.3|O 0.3265 0.5061 0.2188 12.8|C 0.3061 0.6135 0.1730 11.9|N 0.3321 0.6027 0.3738 5.2|C 0.3367 0.5741 0.4346 5.4|C 0.3029 0.5593 0.4584 4.5|O 0.2815 0.6063 0.4523 6.5|C 0.3543 0.6299 0.4748 6.0|S 0.3911 0.6663 0.4448 7.0|N 0.2970 0.4972 0.4853 3.9|C 0.2637 0.4821 0.5066 4.2|C 0.2643 0.4715 0.5737 3.7|O 0.2891 0.4448 0.5991 5.3|C 0.2490 0.4157 0.4744 4.4|S 0.2431 0.4299 0.3954 4.7|N 0.2379 0.4884 0.6023 4.0|C 0.2356 0.4844 0.6667 4.3|C 0.2319 0.4113 0.6930 5.0|O 0.2372 0.4032 0.7469 7.4|C 0.2060 0.5339 0.6815 5.1|C 0.1838 0.5247 0.6268 5.2|C 0.2085 0.5257 0.5755 5.2|N 0.2215 0.3585 0.6571 4.8|C 0.2168 0.2849 0.6785 4.5|C 0.2183 0.2346 0.6254 5.0|O 0.2173 0.2605 0.5739 4.6|C 0.1844 0.2746 0.7104 5.0|O 0.1581 0.2799 0.6675 6.4|N 0.2215 0.1649 0.6376 4.9|C 0.2219 0.1117 0.5888 6.3|C 0.1892 0.1121 0.5554 5.3|O 0.1909 0.1089 0.4994 6.8|C 0.2293 0.0363 0.6184 8.4|C 0.2663 0.0376 0.6356 9.8|C 0.2194 -0.0256 0.5759 11.7|C 0.2780 -0.0277 0.6724 9.9|N 0.1620 0.1159 0.5844 5.0|C 0.1297 0.1184 0.5530 6.9|C 0.1286 0.1812 0.5090 5.4|O 0.1173 0.1752 0.4593 6.3|C 0.1020 0.1262 0.5985 9.6|C 0.0705 0.1550 0.5715 13.8|C 0.0964 0.0553 0.6310 12.0|N 0.1408 0.2438 0.5303 3.7|C 0.1403 0.3092 0.4921 3.6|C 0.1605 0.2964 0.4374 4.1|O 0.1506 0.3181 0.3883 4.4|C 0.1509 0.3741 0.5281 4.8|N 0.1900 0.2632 0.4443 3.7|C 0.2103 0.2471 0.3924 3.4|C 0.1930 0.1935 0.3498 3.5|O 0.1945 0.2026 0.2954 4.7|C 0.2435 0.2155 0.4132 4.0|C 0.2652 0.1934 0.3619 4.5|C 0.2764 0.2520 0.3217 5.9|N 0.2991 0.2987 0.3568 6.2|C 0.3139 0.3544 0.3305 7.5|N 0.3081 0.3717 0.2735 10.7|N 0.3347 0.3926 0.3642 9.5|N 0.1782 0.1384 0.3750 5.2|C 0.1612 0.0849 0.3360 4.6|C 0.1336 0.1240 0.3008 4.8|O 0.1291 0.1081 0.2468 5.8|C 0.1470 0.0248 0.3730 5.9|O 0.1736 -0.0146 0.4002 8.4|N 0.1159 0.1706 0.3307 3.5|C 0.0888 0.2110 0.2998 4.6|C 0.1021 0.2601 0.2527 4.1|O 0.0878 0.2682 0.2050 5.5|C 0.0676 0.2508 0.3441 6.4|C 0.0468 0.2003 0.3824 8.3|O 0.0409 0.1401 0.3626 12.7|N 0.0372 0.2280 0.4337 9.9|N 0.1304 0.2948 0.2667 3.4|C 0.1464 0.3409 0.2245 3.5|C 0.1552 0.2991 0.1687 3.4|O 0.1507 0.3256 0.1178 4.1|C 0.1773 0.3750 0.2555 5.5|C 0.1941 0.4293 0.2168 5.6|C 0.2188 0.4068 0.1788 7.0|C 0.1855 0.5026 0.2213 6.5|C 0.2344 0.4579 0.1418 8.2|C 0.2010 0.5513 0.1841 6.3|C 0.2242 0.5279 0.1462 6.8|N 0.1698 0.2354 0.1771 3.6|C 0.1799 0.1934 0.1239 4.3|C 0.1499 0.1721 0.0850 4.0|O 0.1526 0.1686 0.0304 6.2|C 0.1999 0.1289 0.1439 5.8|C 0.2345 0.1531 0.1656 6.8|O 0.2455 0.2088 0.1476 9.4|N 0.2486 0.1049 0.2016 8.2|N 0.1227 0.1569 0.1142 3.8|C 0.0929 0.1394 0.0774 4.0|C 0.0808 0.2076 0.0446 3.8|O 0.0719 0.2047 -0.0084 4.8|C 0.0667 0.1047 0.1158 4.7|C 0.0344 0.0979 0.0802 6.7|C 0.0785 0.0286 0.1334 6.3|N 0.0816 0.2674 0.0764 3.8|C 0.0709 0.3370 0.0500 3.5|C 0.0900 0.3537 -0.0049 3.5|O 0.0778 0.3832 -0.0490 4.6|C 0.0749 0.3951 0.0995 4.6|S 0.0630 0.4833 0.0732 5.7|N 0.1220 0.3339 -0.0044 4.0|C 0.1435 0.3479 -0.0539 3.8|C 0.1393 0.2981 -0.1070 3.8|O 0.1509 0.3164 -0.1557 5.4|C 0.1797 0.3489 -0.0325 4.1|C 0.1885 0.4122 0.0091 4.7|C 0.1939 0.4797 -0.0273 5.1|N 0.2245 0.4749 -0.0594 4.7|C 0.2320 0.5112 -0.1080 5.3|N 0.2104 0.5550 -0.1346 6.7|N 0.2625 0.5089 -0.1287 6.4|N 0.1226 0.2365 -0.0979 4.7|C 0.1193 0.1840 -0.1477 5.5|C 0.1058 0.2152 -0.2052 5.1|O 0.1199 0.2013 -0.2526 5.5|C 0.1015 0.1171 -0.1271 6.5|C 0.1204 0.0632 -0.0884 7.4|C 0.0948 0.0052 -0.0726 8.7|C 0.1487 0.0325 -0.1229 9.4|N 0.0798 0.2571 -0.2018 4.3|C 0.0663 0.2883 -0.2574 5.4|C 0.0852 0.3507 -0.2808 6.3|O 0.0772 0.3777 -0.3296 9.6|C 0.0314 0.3092 -0.2430 5.9|C 0.0285 0.3053 -0.1773 6.5|C 0.0580 0.2649 -0.1513 6.5|N 0.1096 0.3779 -0.2469 4.9|C 0.1290 0.4392 -0.2673 5.4|C 0.1205 0.5084 -0.2345 5.0|O 0.1333 0.5635 -0.2545 7.3|N 0.1007 0.5061 -0.1893 4.1|C 0.0908 0.5688 -0.1560 3.9|C 0.1215 0.6111 -0.1351 4.0|O 0.1444 0.5768 -0.1120 5.8|C 0.0723 0.5463 -0.0988 4.1|O 0.0492 0.4903 -0.1165 5.5|C 0.0547 0.6085 -0.0689 5.4|N 0.1203 0.6811 -0.1410 5.0|C 0.1491 0.7246 -0.1197 4.7|C 0.1558 0.7095 -0.0544 4.2|O 0.1338 0.7003 -0.0170 4.5|C 0.1383 0.8026 -0.1297 7.1|C 0.1128 0.7986 -0.1775 7.0|C 0.0955 0.7275 -0.1692 4.9|N 0.1884 0.7130 -0.0409 5.2|C 0.1983 0.7026 0.0222 5.3|C 0.1818 0.7546 0.0626 4.1|O 0.1726 0.7336 0.1128 5.1|C 0.2358 0.7123 0.0293 6.2|C 0.2549 0.6484 0.0028 7.5|C 0.2917 0.6525 0.0174 9.4|O 0.3033 0.7091 0.0302 10.4|O 0.3062 0.5936 0.0130 13.3|N 0.1764 0.8222 0.0429 4.6|C 0.1621 0.8749 0.0850 4.5|C 0.1280 0.8545 0.1044 4.1|O 0.1179 0.8668 0.1552 5.6|C 0.1617 0.9488 0.0553 5.8|N 0.1090 0.8213 0.0624 4.4|C 0.0756 0.7986 0.0780 5.4|C 0.0762 0.7315 0.1175 4.3|O 0.0577 0.7251 0.1589 4.7|C 0.0540 0.7848 0.0205 6.4|C 0.0443 0.8605 -0.0057 7.5|C 0.0223 0.7434 0.0360 7.7|C 0.0187 0.8987 0.0336 7.8|N 0.0992 0.6844 0.1027 3.9|C 0.1031 0.6192 0.1415 4.4|C 0.1146 0.6404 0.2041 4.0|O 0.1050 0.6033 0.2463 4.7|C 0.1238 0.5640 0.1128 4.6|S 0.1065 0.5251 0.0454 5.6|N 0.1336 0.6977 0.2085 3.9|C 0.1455 0.7240 0.2676 4.4|C 0.1169 0.7457 0.3056 4.3|O 0.1132 0.7197 0.3564 5.4|C 0.1699 0.7836 0.2589 5.4|N 0.0955 0.7937 0.2824 4.5|C 0.0681 0.8161 0.3195 5.1|C 0.0433 0.7577 0.3301 4.6|O 0.0259 0.7567 0.3761 7.8|C 0.0507 0.8858 0.2937 6.0|O 0.0423 0.8698 0.2323 7.2|C 0.0733 0.9512 0.2975 7.3|N 0.0417 0.7072 0.2891 5.0|C 0.0196 0.6458 0.2956 6.6|C 0.0300 0.5965 0.3471 4.9|O 0.0098 0.5701 0.3795 7.1|C 0.0202 0.6021 0.2363 9.7|C -0.0032 0.5386 0.2378 11.6|C -0.0359 0.5543 0.2507 12.8|C 0.0064 0.4692 0.2265 14.4|C -0.0591 0.5002 0.2519 16.6|C -0.0179 0.4131 0.2290 17.1|C -0.0490 0.4306 0.2411 20.0|O -0.0738 0.3784 0.2424 29.0|N 0.0629 0.5890 0.3550 5.3|C 0.0758 0.5359 0.3975 5.7|C 0.0915 0.5633 0.4543 6.3|O 0.0956 0.5209 0.4968 8.8|C 0.1022 0.4881 0.3653 6.5|O 0.1277 0.5376 0.3475 6.6|C 0.0876 0.4463 0.3124 7.3|N 0.1006 0.6308 0.4548 5.0|C 0.1202 0.6614 0.5045 5.5|C 0.1564 0.6565 0.4932 4.2|O 0.1757 0.6836 0.5309 6.1|N 0.1671 0.6236 0.4437 4.3|C 0.2019 0.6270 0.4279 4.9|C 0.2105 0.7046 0.4088 5.5|O 0.1880 0.7479 0.3972 5.8|C 0.2104 0.5730 0.3788 4.7|S 0.1994 0.4819 0.3944 5.3|N 0.2421 0.7190 0.4074 6.0|C 0.2539 0.7914 0.3918 5.2|C 0.2795 0.7860 0.3439 5.2|O 0.2947 0.7283 0.3354 7.2|C 0.2667 0.8330 0.4479 5.5|C 0.2979 0.7937 0.4739 6.8|C 0.2401 0.8411 0.4946 6.5|C 0.3147 0.8405 0.5232 8.9|N 0.2828 0.8457 0.3126 5.5|C 0.3084 0.8513 0.2681 6.8|C 0.3339 0.9071 0.2913 6.9|O 0.3238 0.9655 0.3084 9.2|C 0.2942 0.8772 0.2079 8.1|C 0.2678 0.8224 0.1849 9.6|C 0.3218 0.8856 0.1612 9.7|C 0.2488 0.8592 0.1305 13.4|N 0.3648 0.8843 0.2903 7.1|C 0.3912 0.9359 0.3082 7.5|C 0.4148 0.9410 0.2584 6.6|O 0.4190 0.8933 0.2207 7.9|C 0.4085 0.9113 0.3679 8.1|C 0.4265 0.8392 0.3582 9.4|C 0.3838 0.9101 0.4190 9.5|C 0.4498 0.8153 0.4094 9.8|N 0.4332 1.0010 0.2578 8.1|C 0.4565 1.0113 0.2104 8.8|C 0.4881 0.9674 0.2198 8.3|O 0.5041 0.9513 0.1752 9.1|C 0.4641 1.0919 0.2124 9.7|C 0.4472 1.1226 0.2624 10.2|C 0.4263 1.0670 0.2929 9.5|N 0.4945 0.9507 0.2761 8.5|C 0.5259 0.9099 0.2892 9.2|C 0.5183 0.8299 0.2854 10.4|O 0.4936 0.8055 0.2610 12.1|N 0.5408 0.7883 0.3123 9.2|C 0.5399 0.7100 0.3118 9.2|C 0.5385 0.6771 0.3729 9.6|O 0.5367 0.6106 0.3746 13.7|C 0.5696 0.6808 0.2787 10.4|N 0.5376 0.7204 0.4190 8.7|C 0.5391 0.6923 0.4800 9.5|C 0.5071 0.7073 0.5116 8.3|O 0.5009 0.7677 0.5306 9.9|C 0.5685 0.7293 0.5148 10.7|O 0.5964 0.7186 0.4756 11.7|C 0.5741 0.6936 0.5756 11.8|N 0.4879 0.6493 0.5170 7.6|C 0.4558 0.6602 0.5461 8.1|C 0.4607 0.6676 0.6121 7.6|O 0.4816 0.6283 0.6378 9.6|C 0.4332 0.5961 0.5327 7.8|S 0.4233 0.5860 0.4546 7.3|N 0.4413 0.7113 0.6406 8.0|C 0.4428 0.7196 0.7051 9.0|C 0.4301 0.6545 0.7369 9.1|O 0.4118 0.6095 0.7120 8.8|C 0.4222 0.7860 0.7170 10.4|C 0.3979 0.7876 0.6660 11.0|C 0.4161 0.7587 0.6119 10.5|N 0.4387 0.6501 0.7942 7.5|C 0.4293 0.5875 0.8300 8.0|C 0.3938 0.5731 0.8380 7.2|O 0.3831 0.5121 0.8511 8.4|N 0.3732 0.6299 0.8311 5.5|C 0.3373 0.6205 0.8365 5.8|C 0.3216 0.6020 0.7758 5.9|O 0.2919 0.5920 0.7740 7.3|C 0.3222 0.6829 0.8695 6.7|C 0.3270 0.7557 0.8419 8.6|O 0.3504 0.7669 0.8088 9.6|O 0.3058 0.8023 0.8555 11.4|N 0.3405 0.5991 0.7294 5.2|C 0.3286 0.5761 0.6697 5.6|C 0.3533 0.5194 0.6489 4.6|O 0.3690 0.5288 0.6025 6.0|C 0.3269 0.6388 0.6249 5.4|C 0.2977 0.6873 0.6394 5.3|C 0.3009 0.7428 0.6809 6.6|C 0.2676 0.6765 0.6112 5.9|C 0.2748 0.7869 0.6932 6.0|C 0.2408 0.7203 0.6239 5.2|C 0.2442 0.7751 0.6660 6.0|O 0.2184 0.8185 0.6781 8.6|N 0.3552 0.4633 0.6849 4.8|C 0.3821 0.4111 0.6771 5.9|C 0.3751 0.3503 0.6342 6.7|O 0.3975 0.3059 0.6235 7.6|C 0.3883 0.3806 0.7408 6.8|N 0.3455 0.3486 0.6101 5.8|C 0.3341 0.2893 0.5719 6.2|C 0.3287 0.3138 0.5087 6.6|O 0.3389 0.3715 0.4897 7.2|C 0.3039 0.2557 0.5996 7.3|C 0.3110 0.2308 0.6627 8.0|O 0.2977 0.2600 0.7055 11.0|N 0.3322 0.1768 0.6668 10.3|O 0.3137 0.2666 0.4772 7.9";
+// 6AQT — d(CGCGCG)₂ DNA duplex (chains A/B of the deposited structure), real fractional coordinates. Space group P2₁.
+const DNA6AQT_PACKED="O -0.0546 0.5678 0.2674 16.3|C -0.0870 0.5415 0.2623 16.6|C -0.0901 0.5366 0.3092 15.8|O -0.0436 0.5239 0.3459 15.2|C -0.1005 0.5647 0.3333 16.6|O -0.1349 0.5572 0.3507 24.6|C -0.0498 0.5720 0.3779 14.4|C -0.0268 0.5399 0.3906 15.9|N 0.0271 0.5402 0.4160 14.4|C 0.0523 0.5438 0.4675 15.7|O 0.0282 0.5454 0.4896 14.7|N 0.1025 0.5449 0.4924 15.2|C 0.1272 0.5443 0.4675 13.4|N 0.1768 0.5451 0.4942 14.5|C 0.1024 0.5417 0.4148 13.1|C 0.0526 0.5407 0.3905 12.6|P -0.1946 0.5632 0.3159 27.1|O -0.2026 0.5913 0.2842 37.5|O -0.2160 0.5623 0.3492 33.4|O -0.2113 0.5353 0.2774 23.9|C -0.2077 0.5046 0.2950 17.5|C -0.2236 0.4824 0.2523 19.3|O -0.1929 0.4857 0.2295 17.0|C -0.2163 0.4494 0.2721 18.7|O -0.2621 0.4408 0.2699 20.9|C -0.2019 0.4314 0.2391 17.3|C -0.1806 0.4558 0.2194 14.9|N -0.1267 0.4543 0.2409 13.1|C -0.1050 0.4538 0.2117 13.3|N -0.0565 0.4552 0.2371 15.1|C -0.0452 0.4559 0.2863 12.9|C 0.0009 0.4576 0.3300 13.7|O 0.0424 0.4579 0.3344 14.8|N -0.0041 0.4576 0.3720 12.9|C -0.0486 0.4590 0.3716 11.8|N -0.0457 0.4609 0.4158 11.9|N -0.0925 0.4582 0.3306 12.4|C -0.0882 0.4559 0.2895 13.6|P -0.2627 0.4320 0.3198 21.5|O -0.3130 0.4238 0.3046 39.6|O -0.2390 0.4569 0.3566 25.3|O -0.2315 0.4003 0.3329 22.9|C -0.2373 0.3731 0.3567 16.0|C -0.1878 0.3662 0.4023 15.1|O -0.1537 0.3562 0.3857 15.1|C -0.1651 0.3954 0.4344 18.1|O -0.1466 0.3896 0.4860 21.4|C -0.1243 0.4045 0.4229 14.4|C -0.1085 0.3726 0.4146 14.6|N -0.0812 0.3735 0.3869 13.4|C -0.0294 0.3763 0.4135 11.9|O -0.0083 0.3779 0.4587 12.9|N -0.0043 0.3785 0.3882 15.0|C -0.0292 0.3781 0.3387 14.4|N -0.0032 0.3792 0.3154 17.9|C -0.0822 0.3754 0.3108 14.1|C -0.1062 0.3729 0.3362 13.7|P -0.1814 0.3935 0.5118 27.2|O -0.2047 0.4246 0.4995 39.4|O -0.1487 0.3848 0.5646 32.2|O -0.2225 0.3670 0.4858 29.0|C -0.2082 0.3359 0.5019 19.6|C -0.2493 0.3133 0.4701 19.9|O -0.2703 0.3173 0.4172 16.2|C -0.2304 0.2798 0.4806 18.8|O -0.2369 0.2708 0.5211 22.3|C -0.2645 0.2631 0.4324 19.2|C -0.2822 0.2879 0.3932 15.9|N -0.2620 0.2871 0.3598 14.1|C -0.2906 0.2877 0.3091 15.1|N -0.2644 0.2894 0.2869 15.1|C -0.2153 0.2889 0.3256 13.0|C -0.1706 0.2911 0.3244 13.8|O -0.1652 0.2918 0.2883 14.7|N -0.1291 0.2904 0.3719 11.9|C -0.1306 0.2897 0.4150 11.7|N -0.0874 0.2920 0.4569 14.2|N -0.1723 0.2885 0.4168 12.9|C -0.2130 0.2884 0.3708 12.9|P -0.2333 0.2360 0.5365 26.6|O -0.2678 0.2180 0.4917 32.4|O -0.2368 0.2352 0.5827 27.8|O -0.1781 0.2278 0.5490 27.0|C -0.1450 0.2084 0.5908 22.7|C -0.0990 0.2005 0.5877 16.1|O -0.1153 0.1889 0.5380 13.9|C -0.0619 0.2273 0.5970 17.7|O -0.0105 0.2168 0.6241 20.6|C -0.0759 0.2366 0.5445 17.3|C -0.0870 0.2048 0.5198 15.2|N -0.1154 0.2065 0.4655 12.5|C -0.0887 0.2088 0.4403 12.3|O -0.0430 0.2099 0.4646 13.0|N -0.1138 0.2102 0.3901 14.0|C -0.1635 0.2098 0.3653 14.3|N -0.1866 0.2107 0.3159 14.8|C -0.1915 0.2069 0.3900 14.0|C -0.1662 0.2047 0.4396 13.6|P 0.0210 0.2184 0.6831 24.4|O 0.0175 0.2497 0.6989 28.6|O 0.0710 0.2049 0.6998 32.0|O -0.0094 0.1960 0.6990 27.6|C 0.0033 0.1637 0.7107 21.5|C -0.0287 0.1510 0.7308 19.1|O -0.0799 0.1528 0.6913 15.9|C -0.0199 0.1167 0.7459 18.8|O -0.0331 0.1097 0.7833 22.3|C -0.0571 0.1002 0.6988 15.4|C -0.1006 0.1227 0.6790 15.6|N -0.1338 0.1221 0.6257 14.9|C -0.1846 0.1198 0.6035 14.9|N -0.2072 0.1217 0.5553 16.5|C -0.1688 0.1222 0.5444 12.7|C -0.1703 0.1242 0.4985 13.9|O -0.2064 0.1238 0.4568 13.9|N -0.1228 0.1244 0.5046 12.7|C -0.0798 0.1255 0.5491 10.6|N -0.0376 0.1280 0.5476 11.6|N -0.0773 0.1245 0.5923 10.8|C -0.1232 0.1231 0.5875 11.5|O -0.0572 0.1129 0.2520 23.9|C -0.0163 0.1351 0.2703 20.2|C 0.0116 0.1381 0.3265 18.0|O -0.0217 0.1518 0.3409 18.1|C 0.0325 0.1086 0.3581 19.0|O 0.0784 0.1135 0.4028 22.9|C -0.0034 0.1017 0.3768 16.7|C -0.0206 0.1345 0.3801 16.8|N -0.0711 0.1342 0.3721 13.0|C -0.0771 0.1310 0.4131 11.8|O -0.0398 0.1309 0.4545 13.6|N -0.1237 0.1308 0.4068 12.9|C -0.1632 0.1329 0.3609 15.3|N -0.2084 0.1315 0.3559 15.9|C -0.1578 0.1349 0.3180 18.3|C -0.1115 0.1355 0.3253 13.7|P 0.1299 0.1071 0.4046 28.8|O 0.1240 0.0791 0.3735 35.0|O 0.1697 0.1075 0.4576 31.9|O 0.1344 0.1369 0.3764 22.0|C 0.1395 0.1671 0.3967 23.7|C 0.1445 0.1899 0.3624 20.9|O 0.1016 0.1884 0.3125 17.7|C 0.1496 0.2236 0.3798 21.8|O 0.2005 0.2332 0.4014 26.4|C 0.1162 0.2421 0.3331 19.8|C 0.0827 0.2182 0.2938 18.4|N 0.0297 0.2185 0.2787 20.9|C -0.0096 0.2181 0.2307 20.8|N -0.0531 0.2186 0.2280 20.2|C -0.0419 0.2185 0.2773 17.4|C -0.0738 0.2175 0.2978 14.8|O -0.1197 0.2176 0.2758 15.2|N -0.0469 0.2183 0.3496 13.9|C 0.0041 0.2170 0.3779 13.7|N 0.0231 0.2159 0.4268 15.0|N 0.0343 0.2184 0.3593 15.2|C 0.0090 0.2185 0.3092 16.1|P 0.2296 0.2457 0.4574 30.7|O 0.2798 0.2563 0.4684 45.4|O 0.2253 0.2215 0.4897 34.4|O 0.1980 0.2761 0.4540 20.4|C 0.2185 0.3011 0.4903 20.7|C 0.1850 0.3062 0.5124 17.9|O 0.1378 0.3171 0.4728 15.4|C 0.1732 0.2768 0.5328 20.5|O 0.1790 0.2819 0.5807 23.5|C 0.1192 0.2691 0.4953 17.5|C 0.0986 0.3012 0.4746 15.8|N 0.0551 0.3012 0.4243 12.8|C 0.0085 0.2990 0.4199 12.5|O 0.0065 0.2976 0.4587 12.1|N -0.0325 0.2975 0.3744 12.4|C -0.0282 0.2979 0.3337 13.2|N -0.0697 0.2965 0.2896 15.3|C 0.0191 0.3010 0.3368 14.3|C 0.0596 0.3014 0.3825 14.1|P 0.2298 0.2744 0.6295 30.3|O 0.2500 0.2447 0.6220 38.2|O 0.2204 0.2767 0.6716 38.7|O 0.2644 0.3029 0.6323 24.7|C 0.2640 0.3312 0.6560 23.6|C 0.2898 0.3567 0.6439 21.6|O 0.2830 0.3544 0.5942 18.0|C 0.2722 0.3893 0.6471 24.2|O 0.2990 0.3998 0.6980 28.2|C 0.2832 0.4084 0.6122 22.1|C 0.2874 0.3845 0.5776 19.8|N 0.2505 0.3865 0.5245 19.6|C 0.2600 0.3865 0.4855 24.4|N 0.2194 0.3863 0.4419 19.1|C 0.1809 0.3860 0.4526 16.2|C 0.1284 0.3845 0.4202 17.4|O 0.1048 0.3851 0.3742 22.0|N 0.1031 0.3851 0.4466 14.7|C 0.1252 0.3829 0.4973 13.7|N 0.0942 0.3826 0.5159 15.5|N 0.1740 0.3843 0.5281 15.8|C 0.1995 0.3849 0.5033 15.1|P 0.2699 0.4098 0.7271 36.2|O 0.3083 0.4178 0.7790 49.9|O 0.2324 0.3854 0.7182 34.8|O 0.2427 0.4410 0.6987 28.3|C 0.2266 0.4644 0.7207 20.7|C 0.1726 0.4715 0.6846 17.4|O 0.1681 0.4826 0.6386 17.7|C 0.1379 0.4432 0.6704 17.4|O 0.0968 0.4504 0.6768 24.1|C 0.1249 0.4357 0.6174 15.2|C 0.1257 0.4681 0.5995 14.4|N 0.1312 0.4678 0.5557 12.2|C 0.0890 0.4640 0.5097 12.9|O 0.0477 0.4630 0.5070 14.6|N 0.0933 0.4630 0.4687 13.7|C 0.1379 0.4645 0.4725 13.5|N 0.1392 0.4640 0.4306 13.7|C 0.1820 0.4684 0.5192 14.2|C 0.1774 0.4690 0.5598 13.3|P 0.1006 0.4429 0.7289 33.1|O 0.1280 0.4129 0.7483 36.5|O 0.0507 0.4467 0.7232 53.3|O 0.1342 0.4708 0.7629 30.3|C 0.1115 0.5005 0.7558 24.5|C 0.1486 0.5245 0.7893 22.5|O 0.1939 0.5222 0.7871 19.2|C 0.1292 0.5576 0.7737 24.9|O 0.1103 0.5695 0.8044 36.1|C 0.1743 0.5762 0.7813 21.2|C 0.2130 0.5524 0.7870 20.1|N 0.2273 0.5526 0.7487 18.2|C 0.2755 0.5520 0.7578 17.7|N 0.2785 0.5519 0.7173 20.8|C 0.2293 0.5524 0.6789 15.2|C 0.2094 0.5514 0.6271 15.3|O 0.2317 0.5493 0.6035 18.1|N 0.1576 0.5509 0.6018 14.1|C 0.1289 0.5508 0.6240 14.7|N 0.0796 0.5497 0.5933 17.1|N 0.1470 0.5518 0.6725 16.1|C 0.1972 0.5524 0.6976 14.4";
 const CATALOG={
   "Inorganic crystals":{
     "NaCl (rock salt)":{cell:{a:5.64,b:5.64,c:5.64,al:90,be:90,ga:90},sg:'F m -3 m',symStr:FCEN,bond:false,
@@ -599,21 +620,23 @@ const CATALOG={
        asym:[{el:'C',x:0.5,y:0.5,z:0.5,B:3,occ:1},{el:'O',x:0.5,y:0.6786,z:0.5,B:3.5,occ:1},
              {el:'N',x:0.6435,y:0.4014,z:0.5,B:4,occ:1},{el:'N',x:0.3565,y:0.4014,z:0.5,B:4,occ:1}]},
   },
-  "Macromolecules (coming soon)":{
-    "— protein support is on the roadmap —":null,
+  "Macromolecules":{
+    "Crambin (1CRN — real protein, P2₁)":{cell:{a:40.96,b:18.65,c:22.52,al:90,be:90.77,ga:90},sg:'P 1 21 1',symStr:['x,y,z','-x,y+1/2,-z'],bond:true,macro:true,asym:unpackAtoms(CRAMBIN_PACKED)},
+    "6AQT — DNA duplex d(CGCGCG)₂ (chains A/B)":{cell:{a:30.920,b:42.890,c:30.950,al:90,be:119.98,ga:90},sg:'P 1 21 1',symStr:['x,y,z','-x,y+1/2,-z'],bond:true,macro:true,asym:unpackAtoms(DNA6AQT_PACKED)},
   },
 };
 const UPLOADED={};   // CIFs the user uploads land here under the "Uploaded CIF" category
 
-/* ---------- CIF parser ---------- */
+/* ---------- CIF / mmCIF parser ---------- */
 function parseCIF(text){
   const lines=text.split(/\r?\n/);
   const num=v=>parseFloat(String(v).replace(/\(.*?\)/g,''));
-  let c={a:10,b:10,c:10,al:90,be:90,ga:90}, sg='(from CIF)', symStr=[], aa=[];
+  const norm=t=>t.toLowerCase().replace(/\./g,'_');                 // treat mmCIF "_cell.length_a" like "_cell_length_a"
+  const val1=ln=>ln.replace(/\s+/g,' ').trim().split(' ').slice(1).join(' ');
+  let c={a:10,b:10,c:10,al:90,be:90,ga:90}, sg='(from CIF)', symStr=[], aa=[], cartesian=false;
   let i=0;
-  const val1=ln=>ln.split(/\s+/).slice(1).join(' ');
   while(i<lines.length){
-    let ln=lines[i].trim(); const low=ln.toLowerCase();
+    let ln=lines[i].trim(); const low=norm(ln);
     if(ln===''||ln[0]==='#'){i++;continue;}
     if(low.startsWith('_cell_length_a')){c.a=num(val1(ln));i++;continue;}
     if(low.startsWith('_cell_length_b')){c.b=num(val1(ln));i++;continue;}
@@ -621,30 +644,33 @@ function parseCIF(text){
     if(low.startsWith('_cell_angle_alpha')){c.al=num(val1(ln));i++;continue;}
     if(low.startsWith('_cell_angle_beta')){c.be=num(val1(ln));i++;continue;}
     if(low.startsWith('_cell_angle_gamma')){c.ga=num(val1(ln));i++;continue;}
-    if(low.startsWith('_symmetry_space_group_name_h-m')||low.startsWith('_space_group_name_h-m')){sg=val1(ln).replace(/['"]/g,'').trim()||sg;i++;continue;}
+    if(low.includes('space_group_name_h-m')){sg=val1(ln).replace(/['"]/g,'').trim()||sg;i++;continue;}
     if(low==='loop_'){
       i++; const tags=[];
-      while(i<lines.length&&lines[i].trim()[0]==='_'){tags.push(lines[i].trim().toLowerCase());i++;}
+      while(i<lines.length&&lines[i].trim()[0]==='_'){tags.push(norm(lines[i].trim()));i++;}
       const data=[];
       while(i<lines.length){const dl=lines[i].trim();
-        if(dl===''||dl[0]==='_'||dl.toLowerCase()==='loop_'||dl[0]==='#'||dl.toLowerCase().startsWith('data_'))break;
+        if(dl===''||dl[0]==='_'||norm(dl)==='loop_'||dl[0]==='#'||dl.toLowerCase().startsWith('data_'))break;
         data.push(lines[i]);i++;}
-      const isSym=tags.some(t=>t.includes('equiv_pos_as_xyz')||t.includes('symop_operation_xyz'));
-      if(isSym){
+      if(tags.some(t=>t.includes('operation_xyz')||t.includes('equiv_pos_as_xyz'))){
         for(let d of data){d=d.trim();if(!d)continue;const m=d.match(/['"]([^'"]+)['"]/);
           if(m)symStr.push(m[1]); else symStr.push(d.replace(/^\d+\s+/,''));}
         continue;
       }
-      const cx=tags.indexOf('_atom_site_fract_x'),cy=tags.indexOf('_atom_site_fract_y'),cz=tags.indexOf('_atom_site_fract_z');
-      if(cx>=0&&cy>=0&&cz>=0){
-        const cT=tags.indexOf('_atom_site_type_symbol'),cL=tags.indexOf('_atom_site_label'),
+      let fx=tags.indexOf('_atom_site_fract_x'),fy=tags.indexOf('_atom_site_fract_y'),fz=tags.indexOf('_atom_site_fract_z');
+      const cxi=tags.indexOf('_atom_site_cartn_x'),cyi=tags.indexOf('_atom_site_cartn_y'),czi=tags.indexOf('_atom_site_cartn_z');
+      const useCart=fx<0&&cxi>=0, xi=useCart?cxi:fx, yi=useCart?cyi:fy, zi=useCart?czi:fz;
+      if(xi>=0&&yi>=0&&zi>=0){
+        if(useCart)cartesian=true;
+        const cT=tags.indexOf('_atom_site_type_symbol'),
+              cL=tags.findIndex(t=>t==='_atom_site_label'||t==='_atom_site_label_atom_id'||t==='_atom_site_auth_atom_id'),
               cO=tags.indexOf('_atom_site_occupancy'),cU=tags.findIndex(t=>t.includes('u_iso_or_equiv')),cB=tags.findIndex(t=>t.includes('b_iso_or_equiv'));
-        for(const d of data){const f=d.trim().split(/\s+/);if(f.length<=Math.max(cx,cy,cz))continue;
+        for(const d of data){const f=d.trim().split(/\s+/);if(f.length<=Math.max(xi,yi,zi))continue;
           const el=normEl(cT>=0?f[cT]:(cL>=0?f[cL]:'C'));
-          const x=num(f[cx]),y=num(f[cy]),z=num(f[cz]);if(![x,y,z].every(isFinite))continue;
+          const x=num(f[xi]),y=num(f[yi]),z=num(f[zi]);if(![x,y,z].every(isFinite))continue;
           let B=cB>=0?num(f[cB]):(cU>=0?8*Math.PI*Math.PI*num(f[cU]):2.0);if(!isFinite(B))B=2.0;
           let occ=cO>=0?num(f[cO]):1;if(!isFinite(occ))occ=1;
-          aa.push({el,x,y,z,B:Math.max(0,Math.min(60,B)),occ});}
+          aa.push({el,x,y,z,B:Math.max(0,Math.min(80,B)),occ});}
         continue;
       }
       continue;
@@ -652,8 +678,50 @@ function parseCIF(text){
     i++;
   }
   if(symStr.length===0)symStr=['x,y,z'];
-  if(aa.length===0)throw new Error('No atoms (_atom_site_fract_*) found in CIF.');
+  if(aa.length===0)throw new Error('No atoms found in CIF/mmCIF.');
+  if(cartesian){const rc=recipOf(c);for(const a of aa){const X=[a.x,a.y,a.z];a.x=dot(rc.as,X);a.y=dot(rc.bs,X);a.z=dot(rc.cs,X);}}
   return {cell:c,sg,symStr,asym:aa,bond:true,name:'Uploaded CIF'};
+}
+
+/* ---------- PDB parser ---------- */
+function parsePDB(text){
+  const lines=text.split(/\r?\n/);
+  let c=null, sg='(from PDB)', symStr=[], atoms=[];
+  for(const ln of lines){
+    const rec=ln.substring(0,6);
+    if(rec==='CRYST1'){
+      c={a:+ln.substring(6,15),b:+ln.substring(15,24),c:+ln.substring(24,33),
+         al:+ln.substring(33,40),be:+ln.substring(40,47),ga:+ln.substring(47,54)};
+      sg=ln.substring(55,66).trim()||sg;
+    } else if(rec==='ATOM  '||rec==='HETATM'){
+      const x=+ln.substring(30,38),y=+ln.substring(38,46),z=+ln.substring(46,54);
+      if(![x,y,z].every(isFinite))continue;
+      const occ=parseFloat(ln.substring(54,60)), B=parseFloat(ln.substring(60,66));
+      let el=ln.substring(76,78).trim(); if(!el)el=ln.substring(12,16).replace(/[^A-Za-z]/g,'');
+      atoms.push({el:normEl(el),x,y,z,B:isFinite(B)?Math.max(0,Math.min(90,B)):20,occ:isFinite(occ)?occ:1});
+    } else if(/^REMARK 290\s+\d+555\s+\S/.test(ln)){
+      const m=ln.match(/^REMARK 290\s+\d+555\s+(\S+)/); if(m&&/[XYZ]/i.test(m[1]))symStr.push(m[1]);
+    }
+  }
+  if(!c)throw new Error('No CRYST1 record — this PDB has no crystallographic cell.');
+  if(atoms.length===0)throw new Error('No ATOM/HETATM records found.');
+  if(symStr.length===0)symStr=['X,Y,Z'];                            // fall back to P1 if REMARK 290 absent
+  const rc=recipOf(c);                                              // Cartesian → fractional
+  for(const a of atoms){const X=[a.x,a.y,a.z];a.x=dot(rc.as,X);a.y=dot(rc.bs,X);a.z=dot(rc.cs,X);}
+  c.sg=sg;
+  return {cell:c,sg,symStr,asym:atoms,bond:true,macro:true,name:'Uploaded PDB'};
+}
+
+/* ---------- format router ---------- */
+function parseStructureFile(text,name){
+  const lower=(name||'').toLowerCase();
+  let isPDB;
+  if(/\.(pdb|ent)$/.test(lower))isPDB=true;
+  else if(/\.(cif|mmcif)$/.test(lower))isPDB=false;
+  else isPDB=/^CRYST1/m.test(text)||(/^ATOM /m.test(text)&&!/_atom_site/.test(text));
+  const st=isPDB?parsePDB(text):parseCIF(text);
+  st.name=name||st.name;
+  return st;
 }
 
 /* ---------- load ---------- */
@@ -676,6 +744,14 @@ function loadStructure(st){
     +`${symops.length} sym-ops · ${atoms.length} atoms/cell`;
   document.getElementById('s_sg').textContent=sgName;
   document.getElementById('showBonds').checked=!!st.bond;
+  // large-structure handling (proteins): efficient rendering + coarse default resolution
+  const g=id=>document.getElementById(id);
+  const many=atoms.length>1500;
+  if(many){g('repMode').value='points';g('showBonds').checked=false;g('showCopies').checked=false;}
+  else {g('repMode').value='atoms';g('showCopies').checked=true;}
+  S.dmin=1.0;g('dmin').value=1.0;g('dmin_v').value='1.00';   // all structures (incl. proteins) default to 1 Å
+  const ctr=st.macro?0.5:1.0;S.contrast=ctr;g('contrast').value=ctr;g('contrast_v').value=ctr.toFixed(2);  // boost weak high-res spots for macromolecules (higher B)
+  if(st.macro)g('cellBox').innerHTML+='<br><span style="color:var(--warm)">protein: full-cell packing, coarse d<sub>min</sub>, |F| computed once</span>';
   sel=0; refreshAtomList(); rebuildStructure();
 }
 
@@ -684,7 +760,7 @@ const $=id=>document.getElementById(id);
 function opt(sel,v,t){const o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
 const catSel=$('category'), presetSel=$('preset');
 Object.keys(CATALOG).forEach(c=>opt(catSel,c,c));
-function getCatMap(cat){return cat==='Uploaded CIF'?UPLOADED:(CATALOG[cat]||{});}
+function getCatMap(cat){return cat==='Uploaded'?UPLOADED:(CATALOG[cat]||{});}
 function populatePresets(cat){presetSel.innerHTML='';Object.keys(getCatMap(cat)).forEach(n=>opt(presetSel,n,n));}
 function loadSelected(){
   const st=getCatMap(catSel.value)[presetSel.value];
@@ -735,19 +811,26 @@ bind('dmin','dmin',x=>x.toFixed(2),true);
 bind('dist','dist',x=>x.toFixed(0),false);
 bind('phi','phi',x=>x.toFixed(1),false);
 bind('osc','osc',x=>x.toFixed(2),false);
+bind('contrast','contrast',x=>x.toFixed(2),false);
 linkAtomNum('ab');linkAtomNum('ao');
 ['showCopies','showBonds','showBeam','repMode'].forEach(id=>$(id).addEventListener('change',()=>{buildReal();compute();}));
 $('showPlanes').addEventListener('change',()=>{lastPlaneKey='';compute();});
+function updatePlanesBtn(){const on=$('showPlanes').checked;const b=$('planesBtn2');
+  b.textContent=on?'▦ Bragg planes: on':'▦ Bragg planes: off';b.style.opacity=on?'1':'0.55';}
+$('planesBtn2').addEventListener('click',()=>{const cb=$('showPlanes');cb.checked=!cb.checked;lastPlaneKey='';compute();updatePlanesBtn();});
+$('showPlanes').addEventListener('change',updatePlanesBtn);
+updatePlanesBtn();
 $('detLabels').addEventListener('change',()=>compute());
+$('detLog').addEventListener('change',()=>compute());
 $('superN').addEventListener('change',()=>{const N=+$('superN').value;orbReal.R=2.4+1.7*N;buildReal();place(camReal,orbReal);compute();});
 ['ih','ik','il'].forEach(id=>$(id).addEventListener('input',updateInspector));
 presetSel.addEventListener('change',loadSelected);
 $('cifFile').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;
-  const rd=new FileReader();rd.onload=()=>{try{const st=parseCIF(rd.result);st.name=f.name;
+  const rd=new FileReader();rd.onload=()=>{try{const st=parseStructureFile(rd.result,f.name);
     UPLOADED[f.name]=st;
-    if(![...catSel.options].some(o=>o.value==='Uploaded CIF'))opt(catSel,'Uploaded CIF','Uploaded CIF');
-    catSel.value='Uploaded CIF';populatePresets('Uploaded CIF');presetSel.value=f.name;loadStructure(st);
-  }catch(err){alert('CIF parse error: '+err.message);}};
+    if(![...catSel.options].some(o=>o.value==='Uploaded'))opt(catSel,'Uploaded','Uploaded');
+    catSel.value='Uploaded';populatePresets('Uploaded');presetSel.value=f.name;loadStructure(st);
+  }catch(err){alert('Parse error: '+err.message);}};
   rd.readAsText(f);});
 $('play').addEventListener('click',e=>{playing=!playing;e.target.innerHTML=playing?'&#10073;&#10073; Pause':'&#9654; Rotate';});
 $('acc').addEventListener('click',e=>{accumulate=!accumulate;e.target.style.background=accumulate?'#2f6f4f':'';e.target.style.color=accumulate?'#fff':'';});
@@ -756,8 +839,8 @@ $('reset').addEventListener('click',()=>{
   playing=false;$('play').innerHTML='&#9654; Rotate';
   S.phi=0;$('phi').value=0;$('phi_v').value='0.0';Qsetup.identity();
   const N=+$('superN').value||1;
-  orbReal.az=0.7;orbReal.pol=1.05;orbReal.R=2.4+1.7*N;
-  orbRec.az=0.7;orbRec.pol=1.05;orbRec.R=4.0;
+  orbReal.az=Math.PI;orbReal.pol=1.05;orbReal.R=2.4+1.7*N;
+  orbRec.az=Math.PI;orbRec.pol=1.05;orbRec.R=4.0;
   place(camReal,orbReal);place(camRec,orbRec);compute();});
 
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -771,8 +854,15 @@ function resize(){const w=sceneEl.clientWidth,h=sceneEl.clientHeight;renderer.se
   camReal.aspect=w/h;camReal.updateProjectionMatrix();camRec.aspect=w/h;camRec.updateProjectionMatrix();
   const dw=det.clientWidth;det.width=dw;det.height=dw;}
 window.addEventListener('resize',resize);
+let lastStepT=0;
+function stepPhi(d){S.phi=((S.phi+d)%360+360)%360;$('phi').value=S.phi;$('phi_v').value=S.phi.toFixed(1);compute();}
 function loop(){requestAnimationFrame(loop);
-  if(playing){S.phi=(S.phi+0.4)%360;$('phi').value=S.phi;$('phi_v').value=S.phi.toFixed(1);compute();}
+  if(playing){
+    if(S.osc>0){                                    // advance one Δφ image at a time (contiguous wedges, like real data collection)
+      const now=performance.now();
+      if(now-lastStepT>=110){stepPhi(S.osc);lastStepT=now;}
+    } else stepPhi(0.4);                             // Δφ=0 → smooth continuous spin
+  }
   if(view==='real')renderer.render(sReal,camReal);else renderer.render(sRec,camRec);}
 
 /* ---------- go ---------- */
