@@ -553,7 +553,7 @@ function compute(){
       if(!best||bd>best.b)best={b:bd,d:dsp,h:r.h,k:r.k,l:r.l};    // strongest diffracting reflection → plane + readout
       const sp=project(pr,K);                                    // spot shows only if the beam reaches the detector face
       if(sp){spots.push({x:sp.x,y:sp.y,b:bd,braw:b,d:dsp,h:r.h,k:r.k,l:r.l});if(accumulate)recorded.push({x:sp.x,y:sp.y,b:bd,braw:b});}
-    }else{const g=0.10+0.5*bd;col[i*3]=g*0.8;col[i*3+1]=g*0.8;col[i*3+2]=g;}
+    }else{const g=0.42+0.55*bd;col[i*3]=g*0.55;col[i*3+1]=g*0.72;col[i*3+2]=g;}   // non-diffracting reciprocal points: visible steel-blue (brightness still tracks |F|)
   }
   for(let j=rayN;j<ra.length;j++)ra[j]=0;
   pts.geometry.attributes.position.needsUpdate=true;
