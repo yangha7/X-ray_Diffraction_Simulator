@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR — drag to rotate the crystal (desktop preview). Put on your Quest 3 and tap <b>Enter VR</b> or <b>Enter AR</b>.</div>
+<div id="hint">Crystal Lab VR — <b>real space in front</b>, <b>reciprocal space behind you</b> (turn around in the headset). Drag to rotate the crystal. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -83,17 +83,17 @@ renderer.setPixelRatio(window.devicePixelRatio);renderer.setSize(innerWidth,inne
 renderer.xr.enabled=true; document.body.appendChild(renderer.domElement);
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0d1117);
 const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.01,50);
-camera.position.set(0,1.5,1.4);camera.lookAt(0,1.35,-1.3);
+camera.position.set(2.7,1.9,0.2);camera.lookAt(0,1.55,0);   // desktop preview: side vantage so front (real) + back (reciprocal) are both visible
 scene.add(new THREE.HemisphereLight(0xffffff,0x223344,1.1));
 const dl=new THREE.DirectionalLight(0xffffff,0.7);dl.position.set(1,3,2);scene.add(dl);
 
-const RECIP_POS=[0,1.45,-1.5], CRYS_POS=[-0.85,1.35,-1.25], DET_POS=[0.95,1.4,-1.55];
+const RECIP_POS=[0,1.45,1.7], CRYS_POS=[-0.35,1.4,-1.55], DET_POS=[0.9,1.35,-1.7];   // real space in front (-z), reciprocal behind you (+z)
 const SC_R=0.6, K=1/LAMBDA;              // reciprocal display scale; Ewald radius K (Å^-1)
 
 // crystal group (grab to rotate)
 const crystalGroup=new THREE.Group(); crystalGroup.position.set(...CRYS_POS); scene.add(crystalGroup);
 // reciprocal group (Ewald sphere + beam fixed; points rotate with orientation)
-const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); scene.add(recipGroup);
+const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); recipGroup.rotation.y=Math.PI; scene.add(recipGroup);  // face user when turned around; keeps beam L→R & handedness matching real space
 const ewald=new THREE.Mesh(new THREE.SphereGeometry(K*SC_R,32,24),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
 ewald.position.set(-K*SC_R,0,0); recipGroup.add(ewald);                       // beam along +x, sphere centre at -K
 const beamMat=new THREE.MeshBasicMaterial({color:0xffce54});
@@ -122,7 +122,15 @@ function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.wid
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
-  ctx.fillStyle='#8b949e';ctx.font='40px sans-serif';ctx.fillText('Trigger: grab & rotate   ·   Grip: next structure',cv.width/2,250);tex.needsUpdate=true;}
+  ctx.fillStyle='#8b949e';ctx.font='38px sans-serif';ctx.fillText('Trigger: grab & rotate  ·  Grip: next  ·  Reciprocal space is behind you',cv.width/2,250);tex.needsUpdate=true;}
+
+// orientation labels — sprites always face the viewer (readable from any angle, no mirroring)
+function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=color;ctx.font='bold 120px sans-serif';ctx.fillText(text,512,128);
+  const tex=new THREE.CanvasTexture(cv);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+  sp.scale.set(0.8,0.2,1);return sp;}
+const realLabel=makeLabel('REAL SPACE','#8fd0ff'); realLabel.position.set(-0.35,1.82,-1.55); scene.add(realLabel);
+const recipLabel=makeLabel('RECIPROCAL SPACE','#ffce54'); recipLabel.position.set(0,2.02,1.7); scene.add(recipLabel);
 
 let cur=-1;
 function loadStructure(i){
