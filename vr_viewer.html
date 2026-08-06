@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR — <b>real space in front</b>, <b>reciprocal space behind you</b> (turn around in the headset). Drag to rotate the crystal. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR — <b>real space in front</b> (beam left→right, crystal on the goniometer, diffracted rays to a detector ⟂ the beam), <b>reciprocal space behind you</b>. Drag to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -87,11 +87,32 @@ camera.position.set(2.7,1.9,0.2);camera.lookAt(0,1.55,0);   // desktop preview: 
 scene.add(new THREE.HemisphereLight(0xffffff,0x223344,1.1));
 const dl=new THREE.DirectionalLight(0xffffff,0.7);dl.position.set(1,3,2);scene.add(dl);
 
-const RECIP_POS=[0,1.45,1.7], CRYS_POS=[-0.35,1.4,-1.55], DET_POS=[0.9,1.35,-1.7];   // real space in front (-z), reciprocal behind you (+z)
+const RECIP_POS=[0,1.45,1.7];            // reciprocal space behind you (+z)
+const REAL_POS=[-0.45,1.4,-1.5];         // real-space experiment in front (-z); beam runs +x (left→right)
 const SC_R=0.6, K=1/LAMBDA;              // reciprocal display scale; Ewald radius K (Å^-1)
+const DET_DIST=0.55, DET_HALF=0.65, BEAM_IN=0.5;   // sample→detector (⟂ beam), detector half-size, incident-beam length
 
-// crystal group (grab to rotate)
-const crystalGroup=new THREE.Group(); crystalGroup.position.set(...CRYS_POS); scene.add(crystalGroup);
+/* ----- real-space experiment (front): beam +x, goniometer spindle = z, detector ⟂ beam ----- */
+const realGroup=new THREE.Group(); realGroup.position.set(...REAL_POS); scene.add(realGroup);
+const yBeam=new THREE.MeshBasicMaterial({color:0xffce54});
+const yBeamDim=new THREE.MeshBasicMaterial({color:0xffce54,transparent:true,opacity:0.30});
+const inBeam=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,BEAM_IN,12),yBeam);      // incident beam: upstream → sample
+inBeam.rotation.z=-Math.PI/2; inBeam.position.set(-BEAM_IN/2,0,0); realGroup.add(inBeam);
+const inHead=new THREE.Mesh(new THREE.ConeGeometry(0.024,0.07,12),yBeam);                   // arrow into the sample (points +x)
+inHead.rotation.z=-Math.PI/2; inHead.position.set(-0.05,0,0); realGroup.add(inHead);
+const outBeam=new THREE.Mesh(new THREE.CylinderGeometry(0.005,0.005,DET_DIST,12),yBeamDim); // direct beam: sample → beamstop (dim)
+outBeam.rotation.z=-Math.PI/2; outBeam.position.set(DET_DIST/2,0,0); realGroup.add(outBeam);
+const beamstop=new THREE.Mesh(new THREE.SphereGeometry(0.013,12,12),new THREE.MeshBasicMaterial({color:0x484f58}));
+beamstop.position.set(DET_DIST,0,0); realGroup.add(beamstop);                               // beamstop at detector centre
+const spindle=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.9,12),new THREE.MeshBasicMaterial({color:0x8899aa,transparent:true,opacity:0.65}));
+spindle.rotation.x=Math.PI/2; realGroup.add(spindle);                                       // goniometer spindle along z (horizontal ⟂ beam)
+// detector plane ⟂ beam, at the downstream end of the beam
+const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.height=512;
+const detCtx=detCanvas.getContext('2d'); const detTex=new THREE.CanvasTexture(detCanvas);
+const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(2*DET_HALF,2*DET_HALF),new THREE.MeshBasicMaterial({map:detTex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));
+detPanel.rotation.y=Math.PI/2; detPanel.position.set(DET_DIST,0,0); realGroup.add(detPanel); // normal = +x (⟂ beam)
+// crystal (rotates with orientation about the sample = realGroup origin)
+const crystalGroup=new THREE.Group(); realGroup.add(crystalGroup);
 // reciprocal group (Ewald sphere + beam fixed; points rotate with orientation)
 const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); recipGroup.rotation.y=Math.PI; scene.add(recipGroup);  // face user when turned around; keeps beam L→R & handedness matching real space
 const ewald=new THREE.Mesh(new THREE.SphereGeometry(K*SC_R,32,24),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
@@ -103,46 +124,50 @@ const beamHead=new THREE.Mesh(new THREE.ConeGeometry(0.02,0.06,12),beamMat);
 beamHead.rotation.z=-Math.PI/2; beamHead.position.set(K*SC_R+0.12,0,0); recipGroup.add(beamHead);
 recipGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.01,10,10),new THREE.MeshBasicMaterial({color:0xffffff}))); // recip origin
 
-let pts=null, atomMeshes=[];
+let pts=null, atomMeshes=[], realRays=null, detSpots=null;
 const sphereGeo=new THREE.SphereGeometry(1,16,12);
-
-// detector panel
-const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.height=512;
-const detCtx=detCanvas.getContext('2d');
-const detTex=new THREE.CanvasTexture(detCanvas);
-const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.5),new THREE.MeshBasicMaterial({map:detTex,transparent:true}));
-detPanel.position.set(...DET_POS); detPanel.lookAt(0,1.4,0.5); scene.add(detPanel);
 
 // text panel
 function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;cv.height=1024*h/w;const ctx=cv.getContext('2d');
   const tex=new THREE.CanvasTexture(cv);const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tex,transparent:true}));
   m.userData={cv,ctx,tex};return m;}
-const info=textPanel(0.9,0.28); info.position.set(0,2.0,-1.5); scene.add(info);
+const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
-  ctx.fillStyle='#8b949e';ctx.font='38px sans-serif';ctx.fillText('Trigger: grab & rotate  ·  Grip: next  ·  Reciprocal space is behind you',cv.width/2,250);tex.needsUpdate=true;}
+  ctx.fillStyle='#8b949e';ctx.font='34px sans-serif';ctx.fillText('Trigger/drag: reorient  ·  release: goniometer spins  ·  Grip: next  ·  reciprocal is behind you',cv.width/2,250);tex.needsUpdate=true;}
 
 // orientation labels — sprites always face the viewer (readable from any angle, no mirroring)
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
   ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=color;ctx.font='bold 120px sans-serif';ctx.fillText(text,512,128);
   const tex=new THREE.CanvasTexture(cv);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
   sp.scale.set(0.8,0.2,1);return sp;}
-const realLabel=makeLabel('REAL SPACE','#8fd0ff'); realLabel.position.set(-0.35,1.82,-1.55); scene.add(realLabel);
-const recipLabel=makeLabel('RECIPROCAL SPACE','#ffce54'); recipLabel.position.set(0,2.02,1.7); scene.add(recipLabel);
+const realLabel=makeLabel('REAL SPACE','#8fd0ff'); realLabel.position.set(-0.7,1.78,-1.4); scene.add(realLabel);
+const recipLabel=makeLabel('RECIPROCAL SPACE','#ffce54'); recipLabel.position.set(0,2.05,1.7); scene.add(recipLabel);
 
 let cur=-1;
 function loadStructure(i){
   cur=(i+STRUCTS.length)%STRUCTS.length; const st=STRUCTS[cur];
+  const n=st.refl.length;
   // reciprocal points
   if(pts)recipGroup.remove(pts);
-  const n=st.refl.length, pos=new Float32Array(n*3), col=new Float32Array(n*3);
   const g=new THREE.BufferGeometry();
-  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
   pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.018,vertexColors:true,sizeAttenuation:true}));
   recipGroup.add(pts);
+  // real-space diffracted rays (sample → detector) + detector spots
+  if(realRays)realGroup.remove(realRays);
+  if(detSpots)realGroup.remove(detSpots);
+  const rg=new THREE.BufferGeometry(); rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*6),3));
+  realRays=new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0xff5c57,transparent:true,opacity:0.8}));
+  realRays.frustumCulled=false; realGroup.add(realRays);
+  const sg=new THREE.BufferGeometry();
+  sg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  sg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  detSpots=new THREE.Points(sg,new THREE.PointsMaterial({size:0.035,vertexColors:true,sizeAttenuation:true,transparent:true,depthWrite:false}));
+  detSpots.frustumCulled=false; realGroup.add(detSpots);
   // real-space atoms
   atomMeshes.forEach(m=>crystalGroup.remove(m)); atomMeshes=[];
   for(const a of st.satoms){const e=EL[a.el];
@@ -155,40 +180,65 @@ function loadStructure(i){
   setInfo(st.name);
 }
 
+/* ---------- detector face (dark plane + resolution rings + beam centre) ---------- */
+function drawDetectorFace(){
+  const W=512,cx=256,cy=256; detCtx.clearRect(0,0,W,W);
+  detCtx.fillStyle='rgba(5,8,13,0.55)'; detCtx.fillRect(0,0,W,W);
+  detCtx.setLineDash([4,5]); detCtx.strokeStyle='rgba(63,143,111,0.7)'; detCtx.fillStyle='rgba(90,170,130,0.9)'; detCtx.font='16px sans-serif';
+  for(const d of [DMIN,DMIN*1.4,DMIN*2,DMIN*3]){                         // rings align with the 3-D spots (same DET_DIST/DET_HALF mapping)
+    const th=Math.asin(Math.min(0.999,LAMBDA/(2*d))); const rpx=DET_DIST*Math.tan(2*th)/DET_HALF*256;
+    if(rpx>6&&rpx<254){detCtx.beginPath();detCtx.arc(cx,cy,rpx,0,7);detCtx.stroke();detCtx.fillText(d.toFixed(2)+'Å',cx+rpx*0.71,cy-rpx*0.71);}
+  }
+  detCtx.setLineDash([]); detCtx.strokeStyle='#30363d'; detCtx.beginPath();detCtx.arc(cx,cy,254,0,7);detCtx.stroke();
+  detCtx.strokeStyle='#8a94a0'; detCtx.beginPath();detCtx.moveTo(cx-7,cy);detCtx.lineTo(cx+7,cy);detCtx.moveTo(cx,cy-7);detCtx.lineTo(cx,cy+7);detCtx.stroke();
+  detTex.needsUpdate=true;
+}
+
 /* ---------- per-frame diffraction ---------- */
 const _v=new THREE.Vector3(), orientation=new THREE.Quaternion();
 function computeFrame(){
   const st=STRUCTS[cur]; const refl=st.refl;
   const pos=pts.geometry.attributes.position.array, col=pts.geometry.attributes.color.array;
-  detCtx.clearRect(0,0,512,512);
-  detCtx.fillStyle='rgba(5,8,13,0.9)'; detCtx.fillRect(0,0,512,512);
-  detCtx.strokeStyle='#223'; detCtx.beginPath();detCtx.arc(256,256,250,0,7);detCtx.stroke();
+  const ray=realRays.geometry.attributes.position.array;
+  const spos=detSpots.geometry.attributes.position.array, scol=detSpots.geometry.attributes.color.array;
+  let rN=0, sN=0;
   for(let i=0;i<refl.length;i++){
     const p=refl[i].p; _v.set(p[0],p[1],p[2]).applyQuaternion(orientation);
-    const pr=[_v.x,_v.y,_v.z], b=refl[i].b;
-    pos[i*3]=pr[0]*SC_R; pos[i*3+1]=pr[1]*SC_R; pos[i*3+2]=pr[2]*SC_R;    // display (rotated, scaled)
-    const e=Math.hypot(pr[0]+K,pr[1],pr[2])-K;                            // excitation (beam +x, s0=(K,0,0))
-    if(Math.abs(e)<BAND){col[i*3]=1;col[i*3+1]=0.28;col[i*3+2]=0.26;      // diffracting → red
-      // detector: diffracted direction ŝ = pr+s0, project onto plane ⟂ beam
-      const sx=pr[0]+K, sy=pr[1], sz=pr[2]; if(sx>0.15){const u=256+ (sy/sx)*300, v=256-(sz/sx)*300;
-        if(u>2&&u<510&&v>2&&v<510){detCtx.fillStyle='rgba(255,80,75,'+(0.4+0.6*b)+')';detCtx.beginPath();detCtx.arc(u,v,1.5+3.5*b,0,7);detCtx.fill();}}
+    const prx=_v.x, pry=_v.y, prz=_v.z, b=refl[i].b;
+    pos[i*3]=prx*SC_R; pos[i*3+1]=pry*SC_R; pos[i*3+2]=prz*SC_R;          // reciprocal display (rotated, scaled)
+    const e=Math.hypot(prx+K,pry,prz)-K;                                 // excitation (beam +x, s0=(K,0,0))
+    if(Math.abs(e)<BAND){
+      col[i*3]=1; col[i*3+1]=0.28; col[i*3+2]=0.26;                      // reciprocal point diffracting → red
+      const sx=prx+K, sy=pry, sz=prz;                                    // diffracted direction ŝ = pr + s0 (beam +x)
+      if(sx>0.05){const t=DET_DIST/sx, hy=sy*t, hz=sz*t;                 // hit on detector plane x = DET_DIST
+        if(Math.abs(hy)<DET_HALF&&Math.abs(hz)<DET_HALF){
+          ray[rN++]=0; ray[rN++]=0; ray[rN++]=0;                        // diffracted ray: sample → hit
+          ray[rN++]=DET_DIST; ray[rN++]=hy; ray[rN++]=hz;
+          spos[sN*3]=DET_DIST-0.004; spos[sN*3+1]=hy; spos[sN*3+2]=hz;  // spot just in front of the plane
+          const cb=0.45+0.55*b; scol[sN*3]=1; scol[sN*3+1]=0.32*cb; scol[sN*3+2]=0.30*cb; sN++;
+        }
+      }
     } else {const g=0.42+0.55*b; col[i*3]=g*0.55; col[i*3+1]=g*0.72; col[i*3+2]=g;}   // steel-blue lattice
   }
-  pts.geometry.attributes.position.needsUpdate=true;
-  pts.geometry.attributes.color.needsUpdate=true;
-  detCtx.strokeStyle='#888';detCtx.beginPath();detCtx.moveTo(246,256);detCtx.lineTo(266,256);detCtx.moveTo(256,246);detCtx.lineTo(256,266);detCtx.stroke();
-  detTex.needsUpdate=true;
-  crystalGroup.quaternion.copy(orientation);
+  for(let j=rN;j<ray.length;j++)ray[j]=0;
+  pts.geometry.attributes.position.needsUpdate=true; pts.geometry.attributes.color.needsUpdate=true;
+  realRays.geometry.attributes.position.needsUpdate=true;
+  detSpots.geometry.setDrawRange(0,sN);
+  detSpots.geometry.attributes.position.needsUpdate=true; detSpots.geometry.attributes.color.needsUpdate=true;
+  drawDetectorFace();
+  crystalGroup.quaternion.copy(orientation);                           // crystal rotates about the goniometer/mounting
 }
 
-/* ---------- interaction: orientation from mouse (desktop) or controller (VR) ---------- */
-const idle=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),0.004);
-let grabbing=null; const grabStart=new THREE.Quaternion(), orientStart=new THREE.Quaternion(), tmpQ=new THREE.Quaternion(), tmpQ2=new THREE.Quaternion();
-// desktop mouse
-(function(){let down=false,px=0,py=0;const el=renderer.domElement;
-  el.addEventListener('mousedown',e=>{down=true;px=e.clientX;py=e.clientY;});
-  window.addEventListener('mouseup',()=>down=false);
-  window.addEventListener('mousemove',e=>{if(!down)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+/* ---------- interaction: mounting = grab/drag (free) · goniometer = auto-spin about z when released ---------- */
+const GONO=new THREE.Vector3(0,0,1);                                   // goniometer spindle = z (horizontal ⟂ beam)
+const idle=new THREE.Quaternion().setFromAxisAngle(GONO,0.004);        // one small φ step per frame
+let grabbing=null, mouseDown=false;
+const grabStart=new THREE.Quaternion(), orientStart=new THREE.Quaternion(), tmpQ=new THREE.Quaternion(), tmpQ2=new THREE.Quaternion();
+// desktop mouse: free reorientation (mounting); pauses the goniometer spin while dragging
+(function(){let px=0,py=0;const el=renderer.domElement;
+  el.addEventListener('mousedown',e=>{mouseDown=true;px=e.clientX;py=e.clientY;});
+  window.addEventListener('mouseup',()=>mouseDown=false);
+  window.addEventListener('mousemove',e=>{if(!mouseDown)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
     tmpQ.setFromAxisAngle(new THREE.Vector3(0,1,0),dx*0.01); tmpQ2.setFromAxisAngle(new THREE.Vector3(1,0,0),dy*0.01);
     orientation.premultiply(tmpQ.multiply(tmpQ2));});
 })();
@@ -224,7 +274,7 @@ if(navigator.xr){
 loadStructure(0);
 renderer.setAnimationLoop(()=>{
   if(grabbing){grabbing.getWorldQuaternion(tmpQ); tmpQ2.copy(grabStart).invert(); orientation.copy(tmpQ.multiply(tmpQ2)).multiply(orientStart);}
-  else orientation.premultiply(idle);
+  else if(!mouseDown) orientation.premultiply(idle);      // released → goniometer spins about z
   computeFrame();
   renderer.render(scene,camera);
 });
