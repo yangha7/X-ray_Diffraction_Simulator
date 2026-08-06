@@ -59,7 +59,7 @@
 <div id="app">
   <!-- LEFT -->
   <div id="controls">
-    <h1>Crystal Lab</h1>
+    <h1>Crystal Lab <span style="font-size:.5em;color:#8b949e;font-weight:400;vertical-align:middle">v1.01</span></h1>
     <div class="sub">Real-space structure &harr; diffraction. General (triclinic) cells, full space-group symmetry, real |F|² intensities.</div>
 
     <h2>Structure</h2>
@@ -96,10 +96,10 @@
     <h2>Beam &amp; rotation</h2>
     <div class="row"><label>&lambda; (&Aring;)</label><input type="range" id="lam" min="0.4" max="2.0" step="0.02" value="1.0"><input type="number" class="val" id="lam_v"></div>
     <div class="row"><label>d<sub>min</sub> (&Aring;)</label><input type="range" id="dmin" min="0.8" max="4" step="0.05" value="1.0"><input type="number" class="val" id="dmin_v"></div>
-    <div class="row"><label>distance (mm)</label><input type="range" id="dist" min="40" max="300" step="5" value="100"><input type="number" class="val" id="dist_v"></div>
+    <div class="row"><label>distance (mm, log)</label><input type="range" id="dist" min="0" max="1000" step="1" value="166"><input type="number" class="val" id="dist_v"></div>
     <div class="row"><label>&phi; (&deg;)</label><input type="range" id="phi" min="0" max="360" step="0.5" value="0"><input type="number" class="val" id="phi_v"></div>
     <div class="row"><label>oscillation &Delta;&phi;</label><input type="range" id="osc" min="0" max="20" step="0.05" value="1"><input type="number" class="val" id="osc_v"></div>
-    <div class="row"><label>spot contrast &darr;=boost</label><input type="range" id="contrast" min="0.3" max="1" step="0.05" value="1"><input type="number" class="val" id="contrast_v"></div>
+    <div class="row"><label>spot contrast &darr;boost &uarr;strong-only</label><input type="range" id="contrast" min="0.3" max="5" step="0.05" value="1"><input type="number" class="val" id="contrast_v"></div>
     <div class="row" style="gap:6px">
       <button id="play" class="primary" style="flex:1">&#9654; Rotate</button>
       <button id="acc" style="flex:1">Accumulate</button>
@@ -485,12 +485,15 @@ function drawDetector(spots){
   const W=det.width,H=det.height, detLabels=document.getElementById('detLabels').checked, logOn=document.getElementById('detLog').checked;
   const bviz=s=>{const raw=(s.braw!==undefined?s.braw:s.b);   // display brightness from raw |F|, honoring current log/contrast (so contrast rescales accumulated spots too)
     if(logOn)return Math.max(0.05,Math.min(1,(Math.log10(raw*raw)+5)/5));   // 5-decade log of intensity
-    return S.contrast>=0.999?raw:Math.pow(raw,S.contrast);};
+    return Math.abs(S.contrast-1)<1e-3?raw:Math.pow(raw,S.contrast);};   // <1 boosts weak · >1 shows only strong
   dctx.fillStyle='#05080d';dctx.fillRect(0,0,W,H);
   dctx.strokeStyle='#2f6f4f';dctx.setLineDash([3,4]);dctx.fillStyle='#3f8f6f';dctx.font='10px sans-serif';
-  for(const d of [S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3]){
+  let ringDs=[S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3];
+  const _thE=Math.atan2(detHalf,S.dist)/2, dEdge=S.lam/(2*Math.sin(Math.max(1e-6,_thE)));
+  if(dEdge>S.dmin*1.6)ringDs=[dEdge*1.03,dEdge*1.5,dEdge*2.5,dEdge*5];   // long camera length (SAXS): scale rings to the detector so a resolution reference stays visible
+  for(const d of ringDs){
     const th=Math.asin(Math.min(0.999,S.lam/(2*d)));const rmm=S.dist*Math.tan(2*th);const rpx=rmm/detHalf*(W/2);
-    if(rpx<W/2){dctx.beginPath();dctx.arc(W/2,H/2,rpx,0,7);dctx.stroke();dctx.fillText(d.toFixed(2)+'Å',W/2+rpx*0.7,H/2-rpx*0.7);}
+    if(rpx<W/2){dctx.beginPath();dctx.arc(W/2,H/2,rpx,0,7);dctx.stroke();dctx.fillText((d>=10?d.toFixed(0):d.toFixed(2))+'Å',W/2+rpx*0.7,H/2-rpx*0.7);}
   }
   dctx.setLineDash([]);
   if(document.getElementById('detPowder').checked){        // Debye–Scherrer rings: one ring per d-spacing, brightness ∝ Σ|F|²
@@ -498,7 +501,8 @@ function drawDetector(spots){
       const th=Math.asin(Math.min(0.999,S.lam/(2*p.d))); const rpx=S.dist*Math.tan(2*th)/detHalf*(W/2);
       if(rpx<3||rpx>=W/2)continue;
       const raw=Math.sqrt(p.rel);
-      const bb=logOn?Math.max(0.05,Math.min(1,(Math.log10(raw*raw)+5)/5)):(S.contrast>=0.999?raw:Math.pow(raw,S.contrast));
+      const bb=logOn?Math.max(0.05,Math.min(1,(Math.log10(raw*raw)+5)/5)):(Math.abs(S.contrast-1)<1e-3?raw:Math.pow(raw,S.contrast));
+      if(bb<0.02)continue;                              // same visibility gate as the spots → contrast >1 leaves only the strong rings
       dctx.strokeStyle='rgba(120,200,255,'+(0.10+0.75*bb)+')'; dctx.lineWidth=0.7+2.3*bb;
       dctx.beginPath();dctx.arc(W/2,H/2,rpx,0,7);dctx.stroke();
     }
@@ -536,7 +540,7 @@ function compute(){
     const pr=[ps[0],cP*ps[1]-sP*ps[2],sP*ps[1]+cP*ps[2]];
     pos[i*3]=pr[0];pos[i*3+1]=pr[1];pos[i*3+2]=pr[2];
     const b=Math.sqrt(r.I/Imax);
-    const bd=S.contrast>=0.999?b:Math.pow(b,S.contrast);   // display brightness (contrast<1 boosts weak high-res spots, like log-scaling an image)
+    const bd=Math.abs(S.contrast-1)<1e-3?b:Math.pow(b,S.contrast);   // <1 boosts weak spots · >1 suppresses weak so only strong diffractions show (culled by the bd>0.02 gate)
     const e=excit(pr,K), on=Math.abs(e)<band;
     let rec=false;                                   // "is this reflection diffracting in this still / wedge?"
     if(bd>0.02){
@@ -851,7 +855,17 @@ function linkAtomNum(id){const r=$(id),n=$(id+'_v');n.min=r.min;n.max=r.max;n.st
   n.addEventListener('input',()=>{let v=parseFloat(n.value);if(isNaN(v))return;v=Math.max(+r.min,Math.min(+r.max,v));r.value=v;commitAtom();});}
 bind('lam','lam',x=>x.toFixed(2),true);
 bind('dmin','dmin',x=>x.toFixed(2),true);
-bind('dist','dist',x=>x.toFixed(0),false);
+(function(){                                   // distance: log-scaled slider 40 mm … 10 m (crystallography → SAXS); number box takes exact mm
+  const r=$('dist'), n=$('dist_v'), Dmin=40, Dmax=10000, LR=Math.log(Dmax/Dmin);
+  const toMM=s=>Dmin*Math.exp(LR*s/1000), toS=d=>1000*Math.log(d/Dmin)/LR;
+  const nice=d=>d<200?Math.round(d):d<1000?Math.round(d/5)*5:Math.round(d/25)*25;
+  n.min=Dmin; n.max=Dmax;
+  r.addEventListener('input',()=>{S.dist=nice(toMM(+r.value)); n.value=S.dist; compute();});
+  const fromNum=commit=>{let v=parseFloat(n.value); if(isNaN(v)){if(commit)n.value=S.dist; return;}
+    v=Math.max(Dmin,Math.min(Dmax,v)); S.dist=v; r.value=toS(v); if(commit)n.value=v; compute();};
+  n.addEventListener('input',()=>fromNum(false)); n.addEventListener('change',()=>fromNum(true));
+  S.dist=100; r.value=toS(100); n.value=100;                     // default 100 mm
+})();
 bind('phi','phi',x=>x.toFixed(1),false);
 bind('osc','osc',x=>x.toFixed(2),false);
 bind('contrast','contrast',x=>x.toFixed(2),false);

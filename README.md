@@ -1,6 +1,6 @@
 # Crystal Lab — X-ray diffraction & reciprocal-space simulator
 
-**Version 1.0**
+**Version 1.01**  ·  VR viewer **v0.2**
 
 An interactive, zero-install browser tool for X-ray crystallography. It ties together the
 real-space crystal, the reciprocal lattice + Ewald sphere, and a live simulated detector, all
@@ -13,7 +13,10 @@ install — just open it in a browser.
 
 ## Files
 
-- **crystal_lab.html** — the main tool (this is v1.0).
+- **crystal_lab.html** — the main tool (this is v1.01).
+- **vr_viewer.html** — standalone WebXR viewer for Meta Quest 3 (v0.2): the real-space experiment
+  (beam, crystal on the goniometer, diffracted rays, detector ⟂ beam) in front of you and
+  reciprocal space + Ewald sphere behind you. Served over HTTPS via GitHub Pages.
 - **diffraction_simulator.html** — the original, simpler lattice/Ewald simulator (schematic
   intensities). Kept as a stripped-down teaching view of just the Ewald construction.
 - **sample_1CRN.pdb** — crambin coordinates, handy for testing the upload path.
@@ -62,9 +65,14 @@ Load your own:
 
 - **Detector**: resolution rings; **Powder rings** toggle (orientation-averaged Debye–Scherrer
   rings, e.g. ice rings); **Log-scale intensity** toggle (5-decade log, reveals weak/high-res
-  spots); **spot-contrast** gamma slider (1.0 = linear/true intensity, < 1 boosts weak spots);
-  hkl labels; **Accumulate** to build a rotation dataset. Detector reaches ~1 Å at the default
-  distance.
+  spots); **spot-contrast** gamma slider (1.0 = linear/true intensity, < 1 boosts weak spots,
+  **> 1 shows only strong reflections** — applies to both spots and powder rings, via the same
+  2% visibility gate); hkl labels; **Accumulate** to build a rotation dataset.
+- **Detector distance**: log-scaled slider **40 mm → 10 m** (number box takes exact mm), so the
+  same tool covers macromolecular crystallography and the **SAXS** regime. Resolution rings
+  auto-scale to the detector at long camera lengths. Note: at long distances only large
+  d-spacings reach the detector (> ~29 Å at 5 m, > ~57 Å at 10 m), so use large-cell structures
+  for SAXS-range spots.
 - **Rotation**: beam is horizontal (left→right); goniometer spindle = x axis (horizontal, ⟂ beam).
   Auto-rotation advances one oscillation-width Δφ per step (contiguous wedges, like real data
   collection). Drag to reorient the crystal freely (beam fixed); Shift/right-drag orbits the view.
@@ -111,8 +119,10 @@ Load your own:
    background). A JS lattice shape-transform (sincg) is a partial client-side bridge.
 3. **Cromer–Mann form factors + Lorentz–polarization toggle** for closer-to-experiment intensities.
 4. **Desktop polish**: FPS/reflection meter, fullscreen, keyboard φ stepping, click-a-spot-to-read-hkl.
-5. **VR (Meta Quest 3)**: WebXR build of the reciprocal-space scene with grab-to-rotate crystal;
-   2D panels as floating in-world surfaces; mixed-reality passthrough.
+5. **VR (Meta Quest 3)** — *shipped as `vr_viewer.html` v0.2*: real-space experiment in front
+   (beam, goniometer, diffracted rays, detector ⟂ beam), reciprocal space + Ewald sphere behind
+   you; grab-to-rotate mounting with the goniometer auto-spinning on release; immersive-VR and
+   AR passthrough. Next: drive it live from the desktop controls; more structures in-headset.
 
 ## Getting started
 

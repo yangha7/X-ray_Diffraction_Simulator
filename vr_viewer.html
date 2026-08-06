@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Crystal Lab VR — reciprocal space in your headset</title>
+<title>Crystal Lab VR v0.2 — reciprocal space in your headset</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
   #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR — <b>real space in front</b> (beam left→right, crystal on the goniometer, diffracted rays to a detector ⟂ the beam), <b>reciprocal space behind you</b>. Drag to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR v0.2 — <b>real space in front</b> (beam left→right, crystal on the goniometer, diffracted rays to a detector ⟂ the beam), <b>reciprocal space behind you</b>. Drag to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -146,7 +146,7 @@ function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;
 const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR',cv.width/2,90);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.2',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
   ctx.fillStyle='#8b949e';ctx.font='34px sans-serif';ctx.fillText('Trigger/drag: reorient  ·  release: goniometer spins  ·  Grip: next  ·  reciprocal is behind you',cv.width/2,250);tex.needsUpdate=true;}
 
