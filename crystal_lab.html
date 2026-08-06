@@ -59,7 +59,7 @@
 <div id="app">
   <!-- LEFT -->
   <div id="controls">
-    <h1>Crystal Lab <span style="font-size:.5em;color:#8b949e;font-weight:400;vertical-align:middle">v1.01</span></h1>
+    <h1>Crystal Lab <span style="font-size:.5em;color:#8b949e;font-weight:400;vertical-align:middle">v1.02</span></h1>
     <div class="sub">Real-space structure &harr; diffraction. General (triclinic) cells, full space-group symmetry, real |F|² intensities.</div>
 
     <h2>Structure</h2>
@@ -94,7 +94,8 @@
     </div>
 
     <h2>Beam &amp; rotation</h2>
-    <div class="row"><label>&lambda; (&Aring;)</label><input type="range" id="lam" min="0.4" max="2.0" step="0.02" value="1.0"><input type="number" class="val" id="lam_v"></div>
+    <div class="row"><label id="lamLbl">&lambda; (&Aring;)</label><input type="range" id="lam" min="0.01" max="2.0" step="0.005" value="1.0"><input type="number" class="val" id="lam_v"></div>
+    <div class="row"><label>beam unit</label><select id="lamUnit" style="width:auto"><option value="A">&lambda; (Å)</option><option value="xray">X-ray (keV)</option><option value="electron">electron (keV)</option></select></div>
     <div class="row"><label>d<sub>min</sub> (&Aring;)</label><input type="range" id="dmin" min="0.8" max="4" step="0.05" value="1.0"><input type="number" class="val" id="dmin_v"></div>
     <div class="row"><label>distance (mm, log)</label><input type="range" id="dist" min="0" max="1000" step="1" value="166"><input type="number" class="val" id="dist_v"></div>
     <div class="row"><label>&phi; (&deg;)</label><input type="range" id="phi" min="0" max="360" step="0.5" value="0"><input type="number" class="val" id="phi_v"></div>
@@ -254,7 +255,7 @@ function expandSymmetry(){
 }
 
 /* ---------- live state ---------- */
-const S={lam:1.0, dmin:1.0, dist:100, phi:0, osc:1, contrast:1.0};
+const S={lam:1.0, lamUnit:'A', dmin:1.0, dist:100, phi:0, osc:1, contrast:1.0};
 let refl=[];
 let powderRings=[];   // [{d, I, rel}] orientation-averaged powder pattern (Σ|F|² per d-spacing)
 let recorded=[], playing=false, accumulate=false, view='real', sel=0, Imax=1;
@@ -853,7 +854,24 @@ function bind(id,key,fmt,struct){
 }
 function linkAtomNum(id){const r=$(id),n=$(id+'_v');n.min=r.min;n.max=r.max;n.step=r.step;
   n.addEventListener('input',()=>{let v=parseFloat(n.value);if(isNaN(v))return;v=Math.max(+r.min,Math.min(+r.max,v));r.value=v;commitAtom();});}
-bind('lam','lam',x=>x.toFixed(2),true);
+(function(){                                   // beam: wavelength (Å) ⇄ energy — X-ray photon (E=hc/λ) or electron (relativistic de Broglie)
+  const r=$('lam'), n=$('lam_v'), u=$('lamUnit'), lbl=$('lamLbl');
+  const HC=12.39842;                            // keV·Å (X-ray)
+  const eLam=kv=>{const V=kv*1000; return 12.2639/Math.sqrt(V*(1+0.97845e-6*V));};      // electron keV → λ (Å)
+  const eKeV=lam=>{const W=(12.2639/lam)**2,a=0.97845e-6; return (-1+Math.sqrt(1+4*a*W))/(2*a)/1000;}; // λ (Å) → electron keV
+  const toU  =lam=>S.lamUnit==='A'?lam:S.lamUnit==='xray'?HC/lam:eKeV(lam);
+  const fromU=v  =>S.lamUnit==='A'?v  :S.lamUnit==='xray'?HC/v  :eLam(v);
+  const labels={A:'&lambda; (&Aring;)', xray:'E, X-ray (keV)', electron:'E, e&#8315; (keV)'};
+  function refreshBox(){const v=toU(S.lam); n.value=(S.lamUnit==='A')?v.toFixed(3):v.toFixed(v<10?3:1); lbl.innerHTML=labels[S.lamUnit];}
+  r.addEventListener('input',()=>{S.lam=+r.value; refreshBox(); rebuildStructure();});
+  const fromBox=commit=>{let v=parseFloat(n.value); if(isNaN(v)){if(commit)refreshBox(); return;}
+    let lam=fromU(v); if(!isFinite(lam)){if(commit)refreshBox(); return;} lam=Math.max(0.01,Math.min(2.0,lam));
+    S.lam=lam; r.value=lam; if(commit)refreshBox(); rebuildStructure();};
+  n.addEventListener('input',()=>fromBox(false));
+  n.addEventListener('change',()=>fromBox(true));
+  u.addEventListener('change',()=>{S.lamUnit=u.value; refreshBox();});
+  S.lam=+r.value; refreshBox();
+})();
 bind('dmin','dmin',x=>x.toFixed(2),true);
 (function(){                                   // distance: log-scaled slider 40 mm … 10 m (crystallography → SAXS); number box takes exact mm
   const r=$('dist'), n=$('dist_v'), Dmin=40, Dmax=10000, LR=Math.log(Dmax/Dmin);

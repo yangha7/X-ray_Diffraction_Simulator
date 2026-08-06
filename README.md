@@ -1,6 +1,6 @@
 # Crystal Lab — X-ray diffraction & reciprocal-space simulator
 
-**Version 1.01**  ·  VR viewer **v0.2**
+**Version 1.02**  ·  VR viewer **v0.2**
 
 An interactive, zero-install browser tool for X-ray crystallography. It ties together the
 real-space crystal, the reciprocal lattice + Ewald sphere, and a live simulated detector, all
@@ -13,7 +13,7 @@ install — just open it in a browser.
 
 ## Files
 
-- **crystal_lab.html** — the main tool (this is v1.01).
+- **crystal_lab.html** — the main tool (this is v1.02).
 - **vr_viewer.html** — standalone WebXR viewer for Meta Quest 3 (v0.2): the real-space experiment
   (beam, crystal on the goniometer, diffracted rays, detector ⟂ beam) in front of you and
   reciprocal space + Ewald sphere behind you. Served over HTTPS via GitHub Pages.
@@ -73,6 +73,9 @@ Load your own:
   auto-scale to the detector at long camera lengths. Note: at long distances only large
   d-spacings reach the detector (> ~29 Å at 5 m, > ~57 Å at 10 m), so use large-cell structures
   for SAXS-range spots.
+- **Beam**: wavelength **0.01–2.0 Å** with a unit selector — **λ (Å)**, **X-ray energy (keV)**
+  (E = hc/λ), or **electron energy (keV)** (relativistic de Broglie). Short wavelengths reach the
+  electron-diffraction regime (0.0251 Å ≈ 200 keV), where the Ewald sphere is nearly flat.
 - **Rotation**: beam is horizontal (left→right); goniometer spindle = x axis (horizontal, ⟂ beam).
   Auto-rotation advances one oscillation-width Δφ per step (contiguous wedges, like real data
   collection). Drag to reorient the crystal freely (beam fixed); Shift/right-drag orbits the view.
