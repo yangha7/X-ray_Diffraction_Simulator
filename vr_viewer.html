@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Crystal Lab VR — reciprocal space in your headset</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
+  #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
+  button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;padding:10px 16px;font-size:15px;cursor:pointer}
+  button.primary{background:#58a6ff;color:#06121f;border:none;font-weight:700}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  #hint{position:fixed;top:10px;left:0;right:0;text-align:center;color:#7d8590;font-size:13px;z-index:10;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="hint">Crystal Lab VR — drag to rotate the crystal (desktop preview). Put on your Quest 3 and tap <b>Enter VR</b> or <b>Enter AR</b>.</div>
+<div id="ui">
+  <button id="vrBtn" class="primary" disabled>Enter VR</button>
+  <button id="arBtn" disabled>Enter AR (passthrough)</button>
+  <button id="nextBtn">Next structure ▸</button>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+const deg=Math.PI/180;
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s];
+const nrm=a=>Math.hypot(a[0],a[1],a[2]);
+
+/* ---------- elements ---------- */
+const EL={H:{Z:1,c:0xffffff,r:0.32},C:{Z:6,c:0x606060,r:0.70},N:{Z:7,c:0x3050f8,r:0.66},
+  O:{Z:8,c:0xff2010,r:0.62},Na:{Z:11,c:0xab5cf2,r:1.0},Si:{Z:14,c:0xb8a060,r:1.0},
+  Cl:{Z:17,c:0x36d100,r:1.0},Cs:{Z:55,c:0x57178f,r:1.5}};
+
+/* ---------- structures (full-cell atom lists: [el,x,y,z,B,occ]) ---------- */
+const Tf=[[0,0,0],[.5,.5,0],[.5,0,.5],[0,.5,.5]];
+const fcc=(el,base)=>Tf.map(t=>[el,(base[0]+t[0])%1,(base[1]+t[1])%1,(base[2]+t[2])%1,0.6,1]);
+const ICE=`O 0.3333 0.6667 0.0629|O 0.6667 0.3333 0.5629|O 0.6667 0.3333 0.9371|O 0.3333 0.6667 0.4371|H 0.3333 0.6667 0.1967 .5|H 0.4519 0.5481 0.0181 .5|H 0.0962 0.5481 0.0181 .5|H 0.4519 0.9038 0.0181 .5|H 0.6667 0.3333 0.6967 .5|H 0.5481 0.4519 0.5181 .5|H 0.9038 0.4519 0.5181 .5|H 0.5481 0.0962 0.5181 .5|H 0.6667 0.3333 0.8033 .5|H 0.5481 0.4519 0.9819 .5|H 0.5481 0.0962 0.9819 .5|H 0.9038 0.4519 0.9819 .5|H 0.3333 0.6667 0.3033 .5|H 0.4519 0.5481 0.4819 .5|H 0.4519 0.9038 0.4819 .5|H 0.0962 0.5481 0.4819 .5`
+  .split('|').map(t=>{const p=t.split(' ');return [p[0],+p[1],+p[2],+p[3],p[0]==='O'?1.2:2.5,p[4]?+p[4]:1];});
+const STRUCTS=[
+  {name:'NaCl (rock salt)', cell:{a:5.64,b:5.64,c:5.64,al:90,be:90,ga:90}, atoms:[
+     ['Na',0,0,0,1,1],['Na',.5,.5,0,1,1],['Na',.5,0,.5,1,1],['Na',0,.5,.5,1,1],
+     ['Cl',.5,0,0,1,1],['Cl',0,.5,0,1,1],['Cl',0,0,.5,1,1],['Cl',.5,.5,.5,1,1]]},
+  {name:'Diamond (carbon)', cell:{a:3.567,b:3.567,c:3.567,al:90,be:90,ga:90},
+     atoms:[...fcc('C',[0,0,0]),...fcc('C',[.25,.25,.25])]},
+  {name:'CsCl', cell:{a:4.12,b:4.12,c:4.12,al:90,be:90,ga:90}, atoms:[
+     ['Cs',0,0,0,1.3,1],['Cl',.5,.5,.5,1.3,1]]},
+  {name:'Ice Ih (hexagonal water)', cell:{a:4.497,b:4.497,c:7.322,al:90,be:90,ga:120}, atoms:ICE},
+];
+
+/* ---------- crystallography ---------- */
+const LAMBDA=1.0, DMIN=1.15, BAND=0.04, FORMC=2.5;
+function recipOf(cl){const {a,b,c,al,be,ga}=cl;const ca=Math.cos(al*deg),cb=Math.cos(be*deg),cg=Math.cos(ga*deg),sg=Math.sin(ga*deg);
+  const vf=Math.sqrt(Math.max(1e-9,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
+  const ax=[a,0,0],bx=[b*cg,b*sg,0],cx=[c*cb,c*(ca-cb*cg)/sg,c*vf/sg];const V=a*b*c*vf;
+  return {as:scl(cross(bx,cx),1/V),bs:scl(cross(cx,ax),1/V),cs:scl(cross(ax,bx),1/V),M:[ax,bx,cx]};}
+function prep(st){                       // reflection list (p0 in Å^-1, brightness b) + real-space Cartesian atoms
+  const rc=recipOf(st.cell); st.rc=rc;
+  const smax=1/DMIN, hm=Math.ceil(smax/nrm(rc.as))+1, km=Math.ceil(smax/nrm(rc.bs))+1, lm=Math.ceil(smax/nrm(rc.cs))+1;
+  const refl=[]; let Imax=1e-9;
+  for(let h=-hm;h<=hm;h++)for(let k=-km;k<=km;k++)for(let l=-lm;l<=lm;l++){if(!h&&!k&&!l)continue;
+    const p=[h*rc.as[0]+k*rc.bs[0]+l*rc.cs[0],h*rc.as[1]+k*rc.bs[1]+l*rc.cs[1],h*rc.as[2]+k*rc.bs[2]+l*rc.cs[2]];
+    const pl=nrm(p); if(pl>smax)continue; const s2=(pl/2)**2; let re=0,im=0;
+    for(const at of st.atoms){const e=EL[at[0]];const f=e.Z*(at[5]||1)*Math.exp(-(FORMC+(at[4]||1))*s2);const ph=2*Math.PI*(h*at[1]+k*at[2]+l*at[3]);re+=f*Math.cos(ph);im+=f*Math.sin(ph);}
+    const I=re*re+im*im; if(I<0.5)continue; refl.push({p:p, I:I}); if(I>Imax)Imax=I;}
+  for(const r of refl)r.b=Math.sqrt(r.I/Imax);
+  st.refl=refl;
+  // real-space atoms → Cartesian, centred; scale so the cell fits ~0.3 m
+  const M=rc.M, mx=Math.max(st.cell.a,st.cell.b,st.cell.c), sc=0.30/mx;
+  st.rscale=sc; st.satoms=st.atoms.map(a=>{const X=[a[1]*M[0][0]+a[2]*M[1][0]+a[3]*M[2][0],a[1]*M[0][1]+a[2]*M[1][1]+a[3]*M[2][1],a[1]*M[0][2]+a[2]*M[1][2]+a[3]*M[2][2]];
+    return {el:a[0],p:scl([X[0]-M[0][0]/2-M[1][0]/2-M[2][0]/2, X[1]-M[0][1]/2-M[1][1]/2-M[2][1]/2, X[2]-M[0][2]/2-M[1][2]/2-M[2][2]/2],sc), occ:a[5]||1};});
+  st.corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]].map(u=>{
+    const X=[u[0]*M[0][0]+u[1]*M[1][0]+u[2]*M[2][0],u[0]*M[0][1]+u[1]*M[1][1]+u[2]*M[2][1],u[0]*M[0][2]+u[1]*M[1][2]+u[2]*M[2][2]];
+    return scl([X[0]-M[0][0]/2-M[1][0]/2-M[2][0]/2,X[1]-M[0][1]/2-M[1][1]/2-M[2][1]/2,X[2]-M[0][2]/2-M[1][2]/2-M[2][2]/2],sc);});
+}
+STRUCTS.forEach(prep);
+
+/* ---------- three.js ---------- */
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(window.devicePixelRatio);renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true; document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0d1117);
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.01,50);
+camera.position.set(0,1.5,1.4);camera.lookAt(0,1.35,-1.3);
+scene.add(new THREE.HemisphereLight(0xffffff,0x223344,1.1));
+const dl=new THREE.DirectionalLight(0xffffff,0.7);dl.position.set(1,3,2);scene.add(dl);
+
+const RECIP_POS=[0,1.45,-1.5], CRYS_POS=[-0.85,1.35,-1.25], DET_POS=[0.95,1.4,-1.55];
+const SC_R=0.6, K=1/LAMBDA;              // reciprocal display scale; Ewald radius K (Å^-1)
+
+// crystal group (grab to rotate)
+const crystalGroup=new THREE.Group(); crystalGroup.position.set(...CRYS_POS); scene.add(crystalGroup);
+// reciprocal group (Ewald sphere + beam fixed; points rotate with orientation)
+const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); scene.add(recipGroup);
+const ewald=new THREE.Mesh(new THREE.SphereGeometry(K*SC_R,32,24),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
+ewald.position.set(-K*SC_R,0,0); recipGroup.add(ewald);                       // beam along +x, sphere centre at -K
+const beamMat=new THREE.MeshBasicMaterial({color:0xffce54});
+const beamShaft=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,2*K*SC_R+0.3,12),beamMat);
+beamShaft.rotation.z=-Math.PI/2; beamShaft.position.set(-K*SC_R,0,0); recipGroup.add(beamShaft);
+const beamHead=new THREE.Mesh(new THREE.ConeGeometry(0.02,0.06,12),beamMat);
+beamHead.rotation.z=-Math.PI/2; beamHead.position.set(K*SC_R+0.12,0,0); recipGroup.add(beamHead);
+recipGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.01,10,10),new THREE.MeshBasicMaterial({color:0xffffff}))); // recip origin
+
+let pts=null, atomMeshes=[];
+const sphereGeo=new THREE.SphereGeometry(1,16,12);
+
+// detector panel
+const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.height=512;
+const detCtx=detCanvas.getContext('2d');
+const detTex=new THREE.CanvasTexture(detCanvas);
+const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.5),new THREE.MeshBasicMaterial({map:detTex,transparent:true}));
+detPanel.position.set(...DET_POS); detPanel.lookAt(0,1.4,0.5); scene.add(detPanel);
+
+// text panel
+function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;cv.height=1024*h/w;const ctx=cv.getContext('2d');
+  const tex=new THREE.CanvasTexture(cv);const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tex,transparent:true}));
+  m.userData={cv,ctx,tex};return m;}
+const info=textPanel(0.9,0.28); info.position.set(0,2.0,-1.5); scene.add(info);
+function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR',cv.width/2,90);
+  ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
+  ctx.fillStyle='#8b949e';ctx.font='40px sans-serif';ctx.fillText('Trigger: grab & rotate   ·   Grip: next structure',cv.width/2,250);tex.needsUpdate=true;}
+
+let cur=-1;
+function loadStructure(i){
+  cur=(i+STRUCTS.length)%STRUCTS.length; const st=STRUCTS[cur];
+  // reciprocal points
+  if(pts)recipGroup.remove(pts);
+  const n=st.refl.length, pos=new Float32Array(n*3), col=new Float32Array(n*3);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.018,vertexColors:true,sizeAttenuation:true}));
+  recipGroup.add(pts);
+  // real-space atoms
+  atomMeshes.forEach(m=>crystalGroup.remove(m)); atomMeshes=[];
+  for(const a of st.satoms){const e=EL[a.el];
+    const m=new THREE.Mesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60,transparent:a.occ<1,opacity:a.occ<1?0.5:1}));
+    const r=0.055*Math.cbrt(e.r); m.scale.set(r,r,r); m.position.set(...a.p); crystalGroup.add(m); atomMeshes.push(m);}
+  // cell box
+  const C=st.corners, E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  const bl=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(E.flatMap(e=>[new THREE.Vector3(...C[e[0]]),new THREE.Vector3(...C[e[1]])])),new THREE.LineBasicMaterial({color:0x8899aa}));
+  crystalGroup.add(bl); atomMeshes.push(bl);
+  setInfo(st.name);
+}
+
+/* ---------- per-frame diffraction ---------- */
+const _v=new THREE.Vector3(), orientation=new THREE.Quaternion();
+function computeFrame(){
+  const st=STRUCTS[cur]; const refl=st.refl;
+  const pos=pts.geometry.attributes.position.array, col=pts.geometry.attributes.color.array;
+  detCtx.clearRect(0,0,512,512);
+  detCtx.fillStyle='rgba(5,8,13,0.9)'; detCtx.fillRect(0,0,512,512);
+  detCtx.strokeStyle='#223'; detCtx.beginPath();detCtx.arc(256,256,250,0,7);detCtx.stroke();
+  for(let i=0;i<refl.length;i++){
+    const p=refl[i].p; _v.set(p[0],p[1],p[2]).applyQuaternion(orientation);
+    const pr=[_v.x,_v.y,_v.z], b=refl[i].b;
+    pos[i*3]=pr[0]*SC_R; pos[i*3+1]=pr[1]*SC_R; pos[i*3+2]=pr[2]*SC_R;    // display (rotated, scaled)
+    const e=Math.hypot(pr[0]+K,pr[1],pr[2])-K;                            // excitation (beam +x, s0=(K,0,0))
+    if(Math.abs(e)<BAND){col[i*3]=1;col[i*3+1]=0.28;col[i*3+2]=0.26;      // diffracting → red
+      // detector: diffracted direction ŝ = pr+s0, project onto plane ⟂ beam
+      const sx=pr[0]+K, sy=pr[1], sz=pr[2]; if(sx>0.15){const u=256+ (sy/sx)*300, v=256-(sz/sx)*300;
+        if(u>2&&u<510&&v>2&&v<510){detCtx.fillStyle='rgba(255,80,75,'+(0.4+0.6*b)+')';detCtx.beginPath();detCtx.arc(u,v,1.5+3.5*b,0,7);detCtx.fill();}}
+    } else {const g=0.42+0.55*b; col[i*3]=g*0.55; col[i*3+1]=g*0.72; col[i*3+2]=g;}   // steel-blue lattice
+  }
+  pts.geometry.attributes.position.needsUpdate=true;
+  pts.geometry.attributes.color.needsUpdate=true;
+  detCtx.strokeStyle='#888';detCtx.beginPath();detCtx.moveTo(246,256);detCtx.lineTo(266,256);detCtx.moveTo(256,246);detCtx.lineTo(256,266);detCtx.stroke();
+  detTex.needsUpdate=true;
+  crystalGroup.quaternion.copy(orientation);
+}
+
+/* ---------- interaction: orientation from mouse (desktop) or controller (VR) ---------- */
+const idle=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),0.004);
+let grabbing=null; const grabStart=new THREE.Quaternion(), orientStart=new THREE.Quaternion(), tmpQ=new THREE.Quaternion(), tmpQ2=new THREE.Quaternion();
+// desktop mouse
+(function(){let down=false,px=0,py=0;const el=renderer.domElement;
+  el.addEventListener('mousedown',e=>{down=true;px=e.clientX;py=e.clientY;});
+  window.addEventListener('mouseup',()=>down=false);
+  window.addEventListener('mousemove',e=>{if(!down)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+    tmpQ.setFromAxisAngle(new THREE.Vector3(0,1,0),dx*0.01); tmpQ2.setFromAxisAngle(new THREE.Vector3(1,0,0),dy*0.01);
+    orientation.premultiply(tmpQ.multiply(tmpQ2));});
+})();
+// VR controllers
+const c0=renderer.xr.getController(0), c1=renderer.xr.getController(1);
+[c0,c1].forEach(c=>{scene.add(c);
+  const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-0.6)]),new THREE.LineBasicMaterial({color:0x58a6ff}));
+  c.add(ray);
+  c.addEventListener('selectstart',()=>{grabbing=c;c.getWorldQuaternion(grabStart);orientStart.copy(orientation);});
+  c.addEventListener('selectend',()=>{if(grabbing===c)grabbing=null;});
+  c.addEventListener('squeezestart',()=>loadStructure(cur+1));
+});
+
+/* ---------- WebXR entry ---------- */
+async function enterXR(mode){
+  if(!navigator.xr)return alert('WebXR not available in this browser.');
+  const feats=mode==='immersive-ar'?{optionalFeatures:['local-floor','hand-tracking']}:{optionalFeatures:['local-floor','bounded-floor','hand-tracking']};
+  try{const session=await navigator.xr.requestSession(mode,feats);
+    renderer.xr.setReferenceSpaceType('local-floor'); await renderer.xr.setSession(session);
+    if(mode==='immersive-ar'){scene.background=null;renderer.setClearColor(0x000000,0);}
+    session.addEventListener('end',()=>{scene.background=new THREE.Color(0x0d1117);});
+  }catch(err){alert('Could not start '+mode+': '+err.message);}
+}
+document.getElementById('vrBtn').onclick=()=>enterXR('immersive-vr');
+document.getElementById('arBtn').onclick=()=>enterXR('immersive-ar');
+document.getElementById('nextBtn').onclick=()=>loadStructure(cur+1);
+if(navigator.xr){
+  navigator.xr.isSessionSupported('immersive-vr').then(s=>{document.getElementById('vrBtn').disabled=!s;});
+  navigator.xr.isSessionSupported('immersive-ar').then(s=>{document.getElementById('arBtn').disabled=!s;});
+}
+
+/* ---------- loop ---------- */
+loadStructure(0);
+renderer.setAnimationLoop(()=>{
+  if(grabbing){grabbing.getWorldQuaternion(tmpQ); tmpQ2.copy(grabStart).invert(); orientation.copy(tmpQ.multiply(tmpQ2)).multiply(orientStart);}
+  else orientation.premultiply(idle);
+  computeFrame();
+  renderer.render(scene,camera);
+});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+</script>
+</body>
+</html>
