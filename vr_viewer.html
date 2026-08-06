@@ -111,10 +111,17 @@ const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.heig
 const detCtx=detCanvas.getContext('2d'); const detTex=new THREE.CanvasTexture(detCanvas);
 const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(2*DET_HALF,2*DET_HALF),new THREE.MeshBasicMaterial({map:detTex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));
 detPanel.rotation.y=Math.PI/2; detPanel.position.set(DET_DIST,0,0); realGroup.add(detPanel); // normal = +x (⟂ beam)
+// resolution-ring labels as camera-facing sprites → read normally from either side of the detector
+function makeTag(text){const cv=document.createElement('canvas');cv.width=256;cv.height=64;const c=cv.getContext('2d');
+  c.textAlign='center';c.textBaseline='middle';c.fillStyle='#9fe0bf';c.font='bold 44px sans-serif';c.fillText(text,128,34);
+  const t=new THREE.CanvasTexture(cv);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false}));
+  s.scale.set(0.13,0.033,1);return s;}
+for(const d of [DMIN,DMIN*1.4,DMIN*2,DMIN*3]){const th=Math.asin(Math.min(0.999,LAMBDA/(2*d)));const rr=DET_DIST*Math.tan(2*th);
+  if(rr>0.03&&rr<DET_HALF*0.98){const tg=makeTag(d.toFixed(2)+'Å');tg.position.set(DET_DIST-0.003,rr*0.72,rr*0.72);realGroup.add(tg);}}
 // crystal (rotates with orientation about the sample = realGroup origin)
 const crystalGroup=new THREE.Group(); realGroup.add(crystalGroup);
 // reciprocal group (Ewald sphere + beam fixed; points rotate with orientation)
-const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); recipGroup.rotation.y=Math.PI; scene.add(recipGroup);  // face user when turned around; keeps beam L→R & handedness matching real space
+const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); recipGroup.rotation.y=0; scene.add(recipGroup);  // no flip: reciprocal beam shares the lab +x direction with the real-space beam
 const ewald=new THREE.Mesh(new THREE.SphereGeometry(K*SC_R,32,24),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
 ewald.position.set(-K*SC_R,0,0); recipGroup.add(ewald);                       // beam along +x, sphere centre at -K
 const beamMat=new THREE.MeshBasicMaterial({color:0xffce54});
@@ -126,6 +133,11 @@ recipGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.01,10,10),new THREE.Mes
 
 let pts=null, atomMeshes=[], realRays=null, detSpots=null;
 const sphereGeo=new THREE.SphereGeometry(1,16,12);
+// round sprite texture so THREE.Points render as discs, not squares
+function circleTex(){const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d');
+  const g=x.createRadialGradient(32,32,0,32,32,31);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.72,'rgba(255,255,255,1)');g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g;x.beginPath();x.arc(32,32,31,0,7);x.fill();return new THREE.CanvasTexture(c);}
+const dotTex=circleTex();
 
 // text panel
 function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;cv.height=1024*h/w;const ctx=cv.getContext('2d');
@@ -155,7 +167,7 @@ function loadStructure(i){
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
   g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
-  pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.018,vertexColors:true,sizeAttenuation:true}));
+  pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.022,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5}));
   recipGroup.add(pts);
   // real-space diffracted rays (sample → detector) + detector spots
   if(realRays)realGroup.remove(realRays);
@@ -166,7 +178,7 @@ function loadStructure(i){
   const sg=new THREE.BufferGeometry();
   sg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
   sg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
-  detSpots=new THREE.Points(sg,new THREE.PointsMaterial({size:0.035,vertexColors:true,sizeAttenuation:true,transparent:true,depthWrite:false}));
+  detSpots=new THREE.Points(sg,new THREE.PointsMaterial({size:0.045,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5,depthWrite:false}));
   detSpots.frustumCulled=false; realGroup.add(detSpots);
   // real-space atoms
   atomMeshes.forEach(m=>crystalGroup.remove(m)); atomMeshes=[];
@@ -184,10 +196,10 @@ function loadStructure(i){
 function drawDetectorFace(){
   const W=512,cx=256,cy=256; detCtx.clearRect(0,0,W,W);
   detCtx.fillStyle='rgba(5,8,13,0.55)'; detCtx.fillRect(0,0,W,W);
-  detCtx.setLineDash([4,5]); detCtx.strokeStyle='rgba(63,143,111,0.7)'; detCtx.fillStyle='rgba(90,170,130,0.9)'; detCtx.font='16px sans-serif';
+  detCtx.setLineDash([4,5]); detCtx.strokeStyle='rgba(63,143,111,0.7)';         // rings only; labels are camera-facing sprites (readable from both sides)
   for(const d of [DMIN,DMIN*1.4,DMIN*2,DMIN*3]){                         // rings align with the 3-D spots (same DET_DIST/DET_HALF mapping)
     const th=Math.asin(Math.min(0.999,LAMBDA/(2*d))); const rpx=DET_DIST*Math.tan(2*th)/DET_HALF*256;
-    if(rpx>6&&rpx<254){detCtx.beginPath();detCtx.arc(cx,cy,rpx,0,7);detCtx.stroke();detCtx.fillText(d.toFixed(2)+'Å',cx+rpx*0.71,cy-rpx*0.71);}
+    if(rpx>6&&rpx<254){detCtx.beginPath();detCtx.arc(cx,cy,rpx,0,7);detCtx.stroke();}
   }
   detCtx.setLineDash([]); detCtx.strokeStyle='#30363d'; detCtx.beginPath();detCtx.arc(cx,cy,254,0,7);detCtx.stroke();
   detCtx.strokeStyle='#8a94a0'; detCtx.beginPath();detCtx.moveTo(cx-7,cy);detCtx.lineTo(cx+7,cy);detCtx.moveTo(cx,cy-7);detCtx.lineTo(cx,cy+7);detCtx.stroke();
