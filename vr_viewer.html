@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Crystal Lab VR v0.4.0 — reciprocal space in your headset</title>
+<title>Crystal Lab VR v0.4.1 — reciprocal space in your headset</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
   #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR v0.4.0 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR v0.4.1 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -29,7 +29,7 @@ const scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s];
 const nrm=a=>Math.hypot(a[0],a[1],a[2]);
 
 /* ---------- state ---------- */
-const S={lam:1.0, lamUnit:'A', dmin:1.15, dist:0.55, contrast:1.0, spin:0.004, cells:1};
+const S={lam:1.0, lamUnit:'A', dmin:1.15, dist:0.55, contrast:1.0, spin:0.004, spinOn:true, cells:1};
 const BAND=0.04, FORMC=2.5, SC_R=0.6, DET_HALF=0.65, BEAM_IN=0.5;
 const REAL_POS=[-0.45,1.4,-1.5], RECIP_POS=[0,1.45,1.7];
 
@@ -57,7 +57,7 @@ const STRUCTS=[
   {name:'CsCl', cell:{a:4.12,b:4.12,c:4.12,al:90,be:90,ga:90}, atoms:[
      ['Cs',0,0,0,1.3,1],['Cl',.5,.5,.5,1.3,1]]},
   {name:'Ice Ih (hexagonal water)', cell:{a:4.497,b:4.497,c:7.322,al:90,be:90,ga:120}, atoms:ICE},
-  {name:'Crambin (1CRN protein)', cell:{a:40.96,b:18.65,c:22.52,al:90,be:90.77,ga:90}, atoms:expandCrambin(), defDmin:3.0},
+  {name:'Crambin (1CRN protein)', cell:{a:40.96,b:18.65,c:22.52,al:90,be:90.77,ga:90}, atoms:expandCrambin(), defDmin:3.0, macro:true},
 ];
 
 /* ---------- crystallography (reflection list depends on S.dmin only; λ handled at display time) ---------- */
@@ -99,6 +99,10 @@ function circleTex(){const c=document.createElement('canvas');c.width=c.height=6
   const g=x.createRadialGradient(32,32,0,32,32,31);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.72,'rgba(255,255,255,1)');g.addColorStop(1,'rgba(255,255,255,0)');
   x.fillStyle=g;x.beginPath();x.arc(32,32,31,0,7);x.fill();return new THREE.CanvasTexture(c);}
 const dotTex=circleTex();
+// point shader: per-vertex size (∝ |F|) + colour, circular via texture mask → spots vary like crystal_lab
+const P_VS='attribute float aSize; attribute vec3 aColor; varying vec3 vC; uniform float uScale; void main(){vC=aColor; vec4 mv=modelViewMatrix*vec4(position,1.0); gl_PointSize=max(2.0,aSize*uScale/(-mv.z)); gl_Position=projectionMatrix*mv;}';
+const P_FS='uniform sampler2D uTex; varying vec3 vC; void main(){vec4 t=texture2D(uTex,gl_PointCoord); if(t.a<0.5)discard; gl_FragColor=vec4(vC,1.0);}';
+function makePointMat(dw){return new THREE.ShaderMaterial({uniforms:{uTex:{value:dotTex},uScale:{value:620.0}},vertexShader:P_VS,fragmentShader:P_FS,transparent:false,depthWrite:dw});}
 
 /* ----- real-space experiment (front): beam +x, goniometer spindle = z, detector ⟂ beam ----- */
 const realGroup=new THREE.Group(); realGroup.position.set(...REAL_POS); scene.add(realGroup);
@@ -146,7 +150,7 @@ function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;
 const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.4.0',cv.width/2,90);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.4.1',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
   ctx.fillStyle='#8b949e';ctx.font='32px sans-serif';ctx.fillText('Left panel: tap buttons/toggles · hold trigger on a slider & sweep · drag scene to reorient',cv.width/2,250);tex.needsUpdate=true;}
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
@@ -170,23 +174,39 @@ function rebuildDetector(){detPanel.position.x=S.dist; beamstop.position.x=S.dis
 function recomputeStructure(){loadStructure(cur);}
 function selectStructure(i){const idx=((i%STRUCTS.length)+STRUCTS.length)%STRUCTS.length; S.dmin=STRUCTS[idx].defDmin||1.15; loadStructure(idx); drawPanel();}
 const _m4=new THREE.Matrix4();
-function buildCrystal(st){                       // atoms (instanced per element) + cell boxes, tiled S.cells^3, centred on the sample
+function computeBonds(pos,cs){                    // grid neighbour search → index pairs within cutoff cs
+  const grid={},K=(a,b,c)=>a+'_'+b+'_'+c,gi=p=>[Math.floor(p[0]/cs),Math.floor(p[1]/cs),Math.floor(p[2]/cs)];
+  for(let i=0;i<pos.length;i++){const g=gi(pos[i]),k=K(g[0],g[1],g[2]);(grid[k]||(grid[k]=[])).push(i);}
+  const out=[],c2=cs*cs;
+  for(let i=0;i<pos.length;i++){const p=pos[i],g=gi(p);
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){const cell=grid[K(g[0]+dx,g[1]+dy,g[2]+dz)];if(!cell)continue;
+      for(const j of cell){if(j<=i)continue;const q=pos[j],ex=p[0]-q[0],ey=p[1]-q[1],ez=p[2]-q[2],d2=ex*ex+ey*ey+ez*ez;if(d2>1e-8&&d2<c2)out.push(i,j);}}}
+  return out;}
+function buildCrystal(st){                        // proteins → bond lines; others → instanced spheres; + cell boxes; tiled S.cells^3
   for(const m of atomMeshes){crystalGroup.remove(m); if(m.material&&m.material.dispose)m.material.dispose(); if(m.geometry&&m.geometry!==sphereGeo&&m.geometry.dispose)m.geometry.dispose();}
   atomMeshes=[];
   const n=S.cells, M=st.rc.M, sc=st.sc, av=scl(M[0],sc), bv=scl(M[1],sc), cv=scl(M[2],sc);
   const ctr=[(M[0][0]+M[1][0]+M[2][0])*n/2*sc,(M[0][1]+M[1][1]+M[2][1])*n/2*sc,(M[0][2]+M[1][2]+M[2][2])*n/2*sc];
   const P=(fx,fy,fz)=>[fx*av[0]+fy*bv[0]+fz*cv[0]-ctr[0], fx*av[1]+fy*bv[1]+fz*cv[1]-ctr[1], fx*av[2]+fy*bv[2]+fz*cv[2]-ctr[2]];
-  const byEl={};
-  for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++)for(const a of st.atoms){
-    (byEl[a[0]]||(byEl[a[0]]=[])).push(P(a[1]+i,a[2]+j,a[3]+k));}
-  for(const el in byEl){const list=byEl[el], e=EL[el], r=0.055*Math.cbrt(e.r);
-    const im=new THREE.InstancedMesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60}),list.length);
-    for(let q=0;q<list.length;q++){_m4.makeScale(r,r,r);_m4.setPosition(list[q][0],list[q][1],list[q][2]);im.setMatrixAt(q,_m4);}
-    im.instanceMatrix.needsUpdate=true; im.frustumCulled=false; crystalGroup.add(im); atomMeshes.push(im);}
-  const cu=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]], E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]], bp=[];
+  if(st.macro){                                   // LINES: covalent bonds (< ~1.95 Å) as one LineSegments — readable for proteins
+    const all=[];
+    for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++)for(const a of st.atoms)all.push(P(a[1]+i,a[2]+j,a[3]+k));
+    const bonds=computeBonds(all,1.95*sc), bp=[];
+    for(let b=0;b<bonds.length;b+=2){const A=all[bonds[b]],B=all[bonds[b+1]];bp.push(new THREE.Vector3(A[0],A[1],A[2]),new THREE.Vector3(B[0],B[1],B[2]));}
+    const lm=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(bp),new THREE.LineBasicMaterial({color:0xa8c0d8}));
+    lm.frustumCulled=false; crystalGroup.add(lm); atomMeshes.push(lm);
+  } else {                                         // BALLS: instanced spheres per element
+    const byEl={};
+    for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++)for(const a of st.atoms){(byEl[a[0]]||(byEl[a[0]]=[])).push(P(a[1]+i,a[2]+j,a[3]+k));}
+    for(const el in byEl){const list=byEl[el], e=EL[el], r=0.055*Math.cbrt(e.r);
+      const im=new THREE.InstancedMesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60}),list.length);
+      for(let q=0;q<list.length;q++){_m4.makeScale(r,r,r);_m4.setPosition(list[q][0],list[q][1],list[q][2]);im.setMatrixAt(q,_m4);}
+      im.instanceMatrix.needsUpdate=true; im.frustumCulled=false; crystalGroup.add(im); atomMeshes.push(im);}
+  }
+  const cu=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]], E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]], bp2=[];
   for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++){const cor=cu.map(u=>P(u[0]+i,u[1]+j,u[2]+k));
-    for(const ed of E)bp.push(new THREE.Vector3(...cor[ed[0]]),new THREE.Vector3(...cor[ed[1]]));}
-  const box=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(bp),new THREE.LineBasicMaterial({color:0x8899aa,transparent:true,opacity:0.5}));
+    for(const ed of E)bp2.push(new THREE.Vector3(...cor[ed[0]]),new THREE.Vector3(...cor[ed[1]]));}
+  const box=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(bp2),new THREE.LineBasicMaterial({color:0x8899aa,transparent:true,opacity:0.5}));
   crystalGroup.add(box); atomMeshes.push(box);
 }
 
@@ -197,9 +217,9 @@ function loadStructure(i){
   if(pts)recipGroup.remove(pts);
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
-  g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
-  pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.022,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5}));
-  recipGroup.add(pts);
+  g.setAttribute('aColor',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  g.setAttribute('aSize',new THREE.BufferAttribute(new Float32Array(n),1));
+  pts=new THREE.Points(g,makePointMat(true)); pts.frustumCulled=false; recipGroup.add(pts);
   if(realRays)realGroup.remove(realRays);
   if(detSpots)detGroup.remove(detSpots);
   const rg=new THREE.BufferGeometry(); rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*6),3));
@@ -207,8 +227,9 @@ function loadStructure(i){
   realRays.frustumCulled=false; realGroup.add(realRays);
   const sg=new THREE.BufferGeometry();
   sg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
-  sg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
-  detSpots=new THREE.Points(sg,new THREE.PointsMaterial({size:0.045,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5,depthWrite:false}));
+  sg.setAttribute('aColor',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  sg.setAttribute('aSize',new THREE.BufferAttribute(new Float32Array(n),1));
+  detSpots=new THREE.Points(sg,makePointMat(false));
   detSpots.frustumCulled=false; detGroup.add(detSpots);
   buildCrystal(st);
   setInfo(st.name); applyVis();
@@ -231,9 +252,9 @@ function drawDetectorFace(){
 const _v=new THREE.Vector3(), orientation=new THREE.Quaternion();
 function computeFrame(){
   const st=STRUCTS[cur], refl=st.refl, K=1/S.lam, ct=S.contrast;
-  const pos=pts.geometry.attributes.position.array, col=pts.geometry.attributes.color.array;
+  const pos=pts.geometry.attributes.position.array, col=pts.geometry.attributes.aColor.array, psz=pts.geometry.attributes.aSize.array;
   const ray=realRays.geometry.attributes.position.array;
-  const spos=detSpots.geometry.attributes.position.array, scol=detSpots.geometry.attributes.color.array;
+  const spos=detSpots.geometry.attributes.position.array, scol=detSpots.geometry.attributes.aColor.array, ssz=detSpots.geometry.attributes.aSize.array;
   let rN=0, sN=0;
   for(let i=0;i<refl.length;i++){
     const p=refl[i].p; _v.set(p[0],p[1],p[2]).applyQuaternion(orientation);
@@ -241,22 +262,22 @@ function computeFrame(){
     pos[i*3]=prx*SC_R; pos[i*3+1]=pry*SC_R; pos[i*3+2]=prz*SC_R;
     const e=Math.hypot(prx+K,pry,prz)-K;
     if(Math.abs(e)<BAND){
-      col[i*3]=1; col[i*3+1]=0.28; col[i*3+2]=0.26;
+      const br=0.4+0.6*bd; col[i*3]=br; col[i*3+1]=br*0.28; col[i*3+2]=br*0.26; psz[i]=0.012+0.032*bd;   // diffracting → red, size & brightness ∝ |F|
       const sx=prx+K;
       if(sx>0.05 && bd>0.02){const t=S.dist/sx, hy=pry*t, hz=prz*t;
         if(Math.abs(hy)<DET_HALF&&Math.abs(hz)<DET_HALF){
           ray[rN++]=0; ray[rN++]=0; ray[rN++]=0; ray[rN++]=S.dist; ray[rN++]=hy; ray[rN++]=hz;
-          spos[sN*3]=S.dist-0.004; spos[sN*3+1]=hy; spos[sN*3+2]=hz;
-          const cb=0.45+0.55*bd; scol[sN*3]=1; scol[sN*3+1]=0.32*cb; scol[sN*3+2]=0.30*cb; sN++;
+          const sb=0.3+0.7*bd; spos[sN*3]=S.dist-0.004; spos[sN*3+1]=hy; spos[sN*3+2]=hz;
+          scol[sN*3]=sb; scol[sN*3+1]=sb*0.32; scol[sN*3+2]=sb*0.30; ssz[sN]=0.008+0.045*bd; sN++;      // detector spot size & brightness ∝ |F|
         }
       }
-    } else {const g=0.42+0.55*bd; col[i*3]=g*0.55; col[i*3+1]=g*0.72; col[i*3+2]=g;}
+    } else {const g=0.22+0.6*bd; col[i*3]=g*0.5; col[i*3+1]=g*0.72; col[i*3+2]=g; psz[i]=0.004+0.018*bd;}   // steel-blue lattice, size ∝ |F|
   }
   for(let j=rN;j<ray.length;j++)ray[j]=0;
-  pts.geometry.attributes.position.needsUpdate=true; pts.geometry.attributes.color.needsUpdate=true;
+  pts.geometry.attributes.position.needsUpdate=true; pts.geometry.attributes.aColor.needsUpdate=true; pts.geometry.attributes.aSize.needsUpdate=true;
   realRays.geometry.attributes.position.needsUpdate=true;
   detSpots.geometry.setDrawRange(0,sN);
-  detSpots.geometry.attributes.position.needsUpdate=true; detSpots.geometry.attributes.color.needsUpdate=true;
+  detSpots.geometry.attributes.position.needsUpdate=true; detSpots.geometry.attributes.aColor.needsUpdate=true; detSpots.geometry.attributes.aSize.needsUpdate=true;
   drawDetectorFace();
   crystalGroup.quaternion.copy(orientation);
 }
@@ -288,8 +309,9 @@ regions.push({type:'slider',id:'dmin',label:'resolution dmin',x:16,y:530,w:428,h
   tOf:()=>(S.dmin-0.7)/3.3, setFromT:t=>{S.dmin=0.7+t*3.3;recomputeStructure();}, disp:()=>S.dmin.toFixed(2)+' Å'});
 regions.push({type:'slider',id:'contrast',label:'spot contrast',x:16,y:618,w:428,h:46,
   tOf:()=>(S.contrast-0.3)/3.7, setFromT:t=>{S.contrast=0.3+t*3.7;}, disp:()=>S.contrast.toFixed(1)});
-regions.push({type:'slider',id:'spin',label:'spin speed',x:16,y:672,w:428,h:46,
+regions.push({type:'slider',id:'spin',label:'spin speed',x:16,y:672,w:300,h:46,
   tOf:()=>S.spin/0.02, setFromT:t=>{S.spin=t*0.02;}, disp:()=>Math.round(S.spin/0.02*100)+'%'});
+regions.push({type:'spintoggle',x:328,y:672,w:116,h:46});
 [['Atoms / cell','crystal'],['Diffracted rays','rays'],['Reciprocal','recip'],['Detector','det']].forEach((b,idx)=>{const c=idx%2,rw=(idx/2)|0;
   regions.push({type:'toggle',k:b[1],label:b[0],x:16+c*222,y:758+rw*48,w:206,h:42});});
 
@@ -313,11 +335,11 @@ function drawPanel(){const g=panelCtx; g.clearRect(0,0,P_W,P_H);
       g.strokeStyle=hov?'#8fd0ff':'#1f6feb'; g.beginPath();g.moveTo(tx,ty);g.lineTo(tx+t*tw,ty);g.stroke();
       g.fillStyle=hov?'#8fd0ff':'#58a6ff'; g.beginPath();g.arc(tx+t*tw,ty,9,0,7);g.fill();
     } else {
-      const active=(r.type==='struct'&&cur===r.i)||(r.type==='unit'&&S.lamUnit===r.val)||(r.type==='cells'&&S.cells===r.n);
-      g.fillStyle=active?'#1f6feb':hov?'#30363d':'#21262d'; rrect(g,r.x,r.y,r.w,r.h,7); g.fill();
+      const active=(r.type==='struct'&&cur===r.i)||(r.type==='unit'&&S.lamUnit===r.val)||(r.type==='cells'&&S.cells===r.n)||(r.type==='spintoggle'&&S.spinOn);
+      g.fillStyle=active?(r.type==='spintoggle'?'#238636':'#1f6feb'):hov?'#30363d':'#21262d'; rrect(g,r.x,r.y,r.w,r.h,7); g.fill();
       g.strokeStyle=hov?'#58a6ff':'#30363d'; g.lineWidth=2; rrect(g,r.x,r.y,r.w,r.h,7); g.stroke();
-      g.fillStyle=active?'#ffffff':'#c9d1d9'; g.font=(r.type==='unit'||r.type==='cells')?'18px sans-serif':'20px sans-serif'; g.textAlign='left';
-      g.fillText(r.label,r.x+12,r.y+r.h/2+1);
+      g.fillStyle=active?'#ffffff':'#c9d1d9'; g.font=(r.type==='unit'||r.type==='cells'||r.type==='spintoggle')?'18px sans-serif':'20px sans-serif'; g.textAlign='left';
+      g.fillText(r.type==='spintoggle'?(S.spinOn?'spin ON':'spin OFF'):r.label,r.x+12,r.y+r.h/2+1);
       if(r.type==='toggle'){const on=tstate[r.k], s=22,bx=r.x+r.w-32,by=r.y+r.h/2-s/2;
         g.strokeStyle='#8b949e';g.lineWidth=2;rrect(g,bx,by,s,s,4);g.stroke();
         if(on){g.fillStyle='#3fb950';rrect(g,bx+4,by+4,s-8,s-8,2);g.fill();}}
@@ -342,6 +364,7 @@ function activate(r){if(!r||r.none)return;
   if(r.type==='struct')selectStructure(r.i);
   else if(r.type==='cells'){S.cells=r.n; buildCrystal(STRUCTS[cur]);}
   else if(r.type==='unit')S.lamUnit=r.val;
+  else if(r.type==='spintoggle')S.spinOn=!S.spinOn;
   else if(r.type==='toggle'){if(r.k==='crystal')showCrystal=!showCrystal;else if(r.k==='rays')showRays=!showRays;
     else if(r.k==='recip')showRecip=!showRecip;else if(r.k==='det')showDet=!showDet; applyVis();}
   drawPanel();}
@@ -408,7 +431,7 @@ renderer.setAnimationLoop(()=>{
   if(draggingSlider&&draggingSlider.ctrl){rayFromController(draggingSlider.ctrl);pickRegion();if(_hitOK)applySlider(draggingSlider.region,sliderT(draggingSlider.region,_hitCX));}
   updateHover(); readZoom();
   if(grabbing){grabbing.getWorldQuaternion(tmpQ); tmpQ2.copy(grabStart).invert(); orientation.copy(tmpQ.multiply(tmpQ2)).multiply(orientStart);}
-  else if(!mouseDown && !draggingSlider && S.spin>0){spinQ.setFromAxisAngle(GONO,S.spin); orientation.premultiply(spinQ);}
+  else if(!mouseDown && !draggingSlider && S.spinOn && S.spin>0){spinQ.setFromAxisAngle(GONO,S.spin); orientation.premultiply(spinQ);}
   computeFrame();
   renderer.render(scene,camera);
 });
