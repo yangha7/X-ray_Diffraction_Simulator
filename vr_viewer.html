@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR v0.3 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b> (point the laser + trigger to pick a structure or show/hide parts). Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR v0.3 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -25,16 +25,20 @@
 "use strict";
 const deg=Math.PI/180;
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s];
 const nrm=a=>Math.hypot(a[0],a[1],a[2]);
+
+/* ---------- state ---------- */
+const S={lam:1.0, lamUnit:'A', dmin:1.15, dist:0.55, contrast:1.0, spin:0.004, cells:1};
+const BAND=0.04, FORMC=2.5, SC_R=0.6, DET_HALF=0.65, BEAM_IN=0.5;
+const REAL_POS=[-0.45,1.4,-1.5], RECIP_POS=[0,1.45,1.7];
 
 /* ---------- elements ---------- */
 const EL={H:{Z:1,c:0xffffff,r:0.32},C:{Z:6,c:0x606060,r:0.70},N:{Z:7,c:0x3050f8,r:0.66},
   O:{Z:8,c:0xff2010,r:0.62},Na:{Z:11,c:0xab5cf2,r:1.0},Si:{Z:14,c:0xb8a060,r:1.0},
   Cl:{Z:17,c:0x36d100,r:1.0},Cs:{Z:55,c:0x57178f,r:1.5}};
 
-/* ---------- structures (full-cell atom lists: [el,x,y,z,B,occ]) ---------- */
+/* ---------- structures ---------- */
 const Tf=[[0,0,0],[.5,.5,0],[.5,0,.5],[0,.5,.5]];
 const fcc=(el,base)=>Tf.map(t=>[el,(base[0]+t[0])%1,(base[1]+t[1])%1,(base[2]+t[2])%1,0.6,1]);
 const ICE=`O 0.3333 0.6667 0.0629|O 0.6667 0.3333 0.5629|O 0.6667 0.3333 0.9371|O 0.3333 0.6667 0.4371|H 0.3333 0.6667 0.1967 .5|H 0.4519 0.5481 0.0181 .5|H 0.0962 0.5481 0.0181 .5|H 0.4519 0.9038 0.0181 .5|H 0.6667 0.3333 0.6967 .5|H 0.5481 0.4519 0.5181 .5|H 0.9038 0.4519 0.5181 .5|H 0.5481 0.0962 0.5181 .5|H 0.6667 0.3333 0.8033 .5|H 0.5481 0.4519 0.9819 .5|H 0.5481 0.0962 0.9819 .5|H 0.9038 0.4519 0.9819 .5|H 0.3333 0.6667 0.3033 .5|H 0.4519 0.5481 0.4819 .5|H 0.4519 0.9038 0.4819 .5|H 0.0962 0.5481 0.4819 .5`
@@ -50,15 +54,14 @@ const STRUCTS=[
   {name:'Ice Ih (hexagonal water)', cell:{a:4.497,b:4.497,c:7.322,al:90,be:90,ga:120}, atoms:ICE},
 ];
 
-/* ---------- crystallography ---------- */
-const LAMBDA=1.0, DMIN=1.15, BAND=0.04, FORMC=2.5;
+/* ---------- crystallography (reflection list depends on S.dmin only; λ handled at display time) ---------- */
 function recipOf(cl){const {a,b,c,al,be,ga}=cl;const ca=Math.cos(al*deg),cb=Math.cos(be*deg),cg=Math.cos(ga*deg),sg=Math.sin(ga*deg);
   const vf=Math.sqrt(Math.max(1e-9,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
   const ax=[a,0,0],bx=[b*cg,b*sg,0],cx=[c*cb,c*(ca-cb*cg)/sg,c*vf/sg];const V=a*b*c*vf;
   return {as:scl(cross(bx,cx),1/V),bs:scl(cross(cx,ax),1/V),cs:scl(cross(ax,bx),1/V),M:[ax,bx,cx]};}
-function prep(st){                       // reflection list (p0 in Å^-1, brightness b) + real-space Cartesian atoms
+function prep(st){
   const rc=recipOf(st.cell); st.rc=rc;
-  const smax=1/DMIN, hm=Math.ceil(smax/nrm(rc.as))+1, km=Math.ceil(smax/nrm(rc.bs))+1, lm=Math.ceil(smax/nrm(rc.cs))+1;
+  const smax=1/S.dmin, hm=Math.ceil(smax/nrm(rc.as))+1, km=Math.ceil(smax/nrm(rc.bs))+1, lm=Math.ceil(smax/nrm(rc.cs))+1;
   const refl=[]; let Imax=1e-9;
   for(let h=-hm;h<=hm;h++)for(let k=-km;k<=km;k++)for(let l=-lm;l<=lm;l++){if(!h&&!k&&!l)continue;
     const p=[h*rc.as[0]+k*rc.bs[0]+l*rc.cs[0],h*rc.as[1]+k*rc.bs[1]+l*rc.cs[1],h*rc.as[2]+k*rc.bs[2]+l*rc.cs[2]];
@@ -67,15 +70,13 @@ function prep(st){                       // reflection list (p0 in Å^-1, bright
     const I=re*re+im*im; if(I<0.5)continue; refl.push({p:p, I:I}); if(I>Imax)Imax=I;}
   for(const r of refl)r.b=Math.sqrt(r.I/Imax);
   st.refl=refl;
-  // real-space atoms → Cartesian, centred; scale so the cell fits ~0.3 m
-  const M=rc.M, mx=Math.max(st.cell.a,st.cell.b,st.cell.c), sc=0.30/mx;
-  st.rscale=sc; st.satoms=st.atoms.map(a=>{const X=[a[1]*M[0][0]+a[2]*M[1][0]+a[3]*M[2][0],a[1]*M[0][1]+a[2]*M[1][1]+a[3]*M[2][1],a[1]*M[0][2]+a[2]*M[1][2]+a[3]*M[2][2]];
+  const M=rc.M, mx=Math.max(st.cell.a,st.cell.b,st.cell.c), sc=0.30/mx; st.sc=sc;
+  st.satoms=st.atoms.map(a=>{const X=[a[1]*M[0][0]+a[2]*M[1][0]+a[3]*M[2][0],a[1]*M[0][1]+a[2]*M[1][1]+a[3]*M[2][1],a[1]*M[0][2]+a[2]*M[1][2]+a[3]*M[2][2]];
     return {el:a[0],p:scl([X[0]-M[0][0]/2-M[1][0]/2-M[2][0]/2, X[1]-M[0][1]/2-M[1][1]/2-M[2][1]/2, X[2]-M[0][2]/2-M[1][2]/2-M[2][2]/2],sc), occ:a[5]||1};});
   st.corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]].map(u=>{
     const X=[u[0]*M[0][0]+u[1]*M[1][0]+u[2]*M[2][0],u[0]*M[0][1]+u[1]*M[1][1]+u[2]*M[2][1],u[0]*M[0][2]+u[1]*M[1][2]+u[2]*M[2][2]];
     return scl([X[0]-M[0][0]/2-M[1][0]/2-M[2][0]/2,X[1]-M[0][1]/2-M[1][1]/2-M[2][1]/2,X[2]-M[0][2]/2-M[1][2]/2-M[2][2]/2],sc);});
 }
-STRUCTS.forEach(prep);
 
 /* ---------- three.js ---------- */
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
@@ -83,64 +84,55 @@ renderer.setPixelRatio(window.devicePixelRatio);renderer.setSize(innerWidth,inne
 renderer.xr.enabled=true; document.body.appendChild(renderer.domElement);
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0d1117);
 const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.01,50);
-camera.position.set(2.7,1.9,0.2);camera.lookAt(0,1.55,0);   // desktop preview: side vantage so front (real) + back (reciprocal) are both visible
+camera.position.set(2.7,1.9,0.2);camera.lookAt(0,1.55,0);
 scene.add(new THREE.HemisphereLight(0xffffff,0x223344,1.1));
 const dl=new THREE.DirectionalLight(0xffffff,0.7);dl.position.set(1,3,2);scene.add(dl);
-
-const RECIP_POS=[0,1.45,1.7];            // reciprocal space behind you (+z)
-const REAL_POS=[-0.45,1.4,-1.5];         // real-space experiment in front (-z); beam runs +x (left→right)
-const SC_R=0.6, K=1/LAMBDA;              // reciprocal display scale; Ewald radius K (Å^-1)
-const DET_DIST=0.55, DET_HALF=0.65, BEAM_IN=0.5;   // sample→detector (⟂ beam), detector half-size, incident-beam length
-
-/* ----- real-space experiment (front): beam +x, goniometer spindle = z, detector ⟂ beam ----- */
-const realGroup=new THREE.Group(); realGroup.position.set(...REAL_POS); scene.add(realGroup);
-const yBeam=new THREE.MeshBasicMaterial({color:0xffce54});
-const yBeamDim=new THREE.MeshBasicMaterial({color:0xffce54,transparent:true,opacity:0.30});
-const inBeam=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,BEAM_IN,12),yBeam);      // incident beam: upstream → sample
-inBeam.rotation.z=-Math.PI/2; inBeam.position.set(-BEAM_IN/2,0,0); realGroup.add(inBeam);
-const inHead=new THREE.Mesh(new THREE.ConeGeometry(0.024,0.07,12),yBeam);                   // arrow into the sample (points +x)
-inHead.rotation.z=-Math.PI/2; inHead.position.set(-0.05,0,0); realGroup.add(inHead);
-const outBeam=new THREE.Mesh(new THREE.CylinderGeometry(0.005,0.005,DET_DIST,12),yBeamDim); // direct beam: sample → beamstop (dim)
-outBeam.rotation.z=-Math.PI/2; outBeam.position.set(DET_DIST/2,0,0); realGroup.add(outBeam);
-const beamstop=new THREE.Mesh(new THREE.SphereGeometry(0.013,12,12),new THREE.MeshBasicMaterial({color:0x484f58}));
-beamstop.position.set(DET_DIST,0,0); realGroup.add(beamstop);                               // beamstop at detector centre
-const spindle=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.9,12),new THREE.MeshBasicMaterial({color:0x8899aa,transparent:true,opacity:0.65}));
-spindle.rotation.x=Math.PI/2; realGroup.add(spindle);                                       // goniometer spindle along z (horizontal ⟂ beam)
-// detector plane ⟂ beam, at the downstream end of the beam (in detGroup so it can be hidden as a unit)
-const detGroup=new THREE.Group(); realGroup.add(detGroup);
-const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.height=512;
-const detCtx=detCanvas.getContext('2d'); const detTex=new THREE.CanvasTexture(detCanvas);
-const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(2*DET_HALF,2*DET_HALF),new THREE.MeshBasicMaterial({map:detTex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));
-detPanel.rotation.y=Math.PI/2; detPanel.position.set(DET_DIST,0,0); detGroup.add(detPanel); // normal = +x (⟂ beam)
-// resolution-ring labels as camera-facing sprites → read normally from either side of the detector
-function makeTag(text){const cv=document.createElement('canvas');cv.width=256;cv.height=64;const c=cv.getContext('2d');
-  c.textAlign='center';c.textBaseline='middle';c.fillStyle='#9fe0bf';c.font='bold 44px sans-serif';c.fillText(text,128,34);
-  const t=new THREE.CanvasTexture(cv);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false}));
-  s.scale.set(0.13,0.033,1);return s;}
-for(const d of [DMIN,DMIN*1.4,DMIN*2,DMIN*3]){const th=Math.asin(Math.min(0.999,LAMBDA/(2*d)));const rr=DET_DIST*Math.tan(2*th);
-  if(rr>0.03&&rr<DET_HALF*0.98){const tg=makeTag(d.toFixed(2)+'Å');tg.position.set(DET_DIST-0.003,rr*0.72,rr*0.72);detGroup.add(tg);}}
-// crystal (rotates with orientation about the sample = realGroup origin)
-const crystalGroup=new THREE.Group(); realGroup.add(crystalGroup);
-// reciprocal group (Ewald sphere + beam fixed; points rotate with orientation)
-const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); recipGroup.rotation.y=0; scene.add(recipGroup);  // no flip: reciprocal beam shares the lab +x direction with the real-space beam
-const ewald=new THREE.Mesh(new THREE.SphereGeometry(K*SC_R,32,24),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
-ewald.position.set(-K*SC_R,0,0); recipGroup.add(ewald);                       // beam along +x, sphere centre at -K
-const beamMat=new THREE.MeshBasicMaterial({color:0xffce54});
-const beamShaft=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,2*K*SC_R+0.3,12),beamMat);
-beamShaft.rotation.z=-Math.PI/2; beamShaft.position.set(-K*SC_R,0,0); recipGroup.add(beamShaft);
-const beamHead=new THREE.Mesh(new THREE.ConeGeometry(0.02,0.06,12),beamMat);
-beamHead.rotation.z=-Math.PI/2; beamHead.position.set(K*SC_R+0.12,0,0); recipGroup.add(beamHead);
-recipGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.01,10,10),new THREE.MeshBasicMaterial({color:0xffffff}))); // recip origin
-
-let pts=null, atomMeshes=[], realRays=null, detSpots=null;
 const sphereGeo=new THREE.SphereGeometry(1,16,12);
-// round sprite texture so THREE.Points render as discs, not squares
 function circleTex(){const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d');
   const g=x.createRadialGradient(32,32,0,32,32,31);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.72,'rgba(255,255,255,1)');g.addColorStop(1,'rgba(255,255,255,0)');
   x.fillStyle=g;x.beginPath();x.arc(32,32,31,0,7);x.fill();return new THREE.CanvasTexture(c);}
 const dotTex=circleTex();
 
-// text panel
+/* ----- real-space experiment (front): beam +x, goniometer spindle = z, detector ⟂ beam ----- */
+const realGroup=new THREE.Group(); realGroup.position.set(...REAL_POS); scene.add(realGroup);
+const yBeam=new THREE.MeshBasicMaterial({color:0xffce54});
+const yBeamDim=new THREE.MeshBasicMaterial({color:0xffce54,transparent:true,opacity:0.30});
+const inBeam=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,BEAM_IN,12),yBeam);
+inBeam.rotation.z=-Math.PI/2; inBeam.position.set(-BEAM_IN/2,0,0); realGroup.add(inBeam);
+const inHead=new THREE.Mesh(new THREE.ConeGeometry(0.024,0.07,12),yBeam);
+inHead.rotation.z=-Math.PI/2; inHead.position.set(-0.05,0,0); realGroup.add(inHead);
+const outBeam=new THREE.Mesh(new THREE.CylinderGeometry(0.005,0.005,1,12),yBeamDim);   // direct beam, length scaled to S.dist
+outBeam.rotation.z=-Math.PI/2; realGroup.add(outBeam);
+const beamstop=new THREE.Mesh(new THREE.SphereGeometry(0.013,12,12),new THREE.MeshBasicMaterial({color:0x484f58}));
+realGroup.add(beamstop);
+const spindle=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.9,12),new THREE.MeshBasicMaterial({color:0x8899aa,transparent:true,opacity:0.65}));
+spindle.rotation.x=Math.PI/2; realGroup.add(spindle);
+const detGroup=new THREE.Group(); realGroup.add(detGroup);
+const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.height=512;
+const detCtx=detCanvas.getContext('2d'); const detTex=new THREE.CanvasTexture(detCanvas);
+const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(2*DET_HALF,2*DET_HALF),new THREE.MeshBasicMaterial({map:detTex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));
+detPanel.rotation.y=Math.PI/2; detGroup.add(detPanel);
+function makeTag(text){const cv=document.createElement('canvas');cv.width=256;cv.height=64;const c=cv.getContext('2d');
+  c.textAlign='center';c.textBaseline='middle';c.fillStyle='#9fe0bf';c.font='bold 44px sans-serif';c.fillText(text,128,34);
+  const t=new THREE.CanvasTexture(cv);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false}));
+  s.scale.set(0.13,0.033,1);return s;}
+let ringTags=[];
+const crystalGroup=new THREE.Group(); realGroup.add(crystalGroup);
+
+/* ----- reciprocal space (behind you): Ewald sphere scaled with λ, beam direction indicator ----- */
+const recipGroup=new THREE.Group(); recipGroup.position.set(...RECIP_POS); scene.add(recipGroup);
+const ewald=new THREE.Mesh(new THREE.SphereGeometry(1,32,24),new THREE.MeshBasicMaterial({color:0x58a6ff,wireframe:true,transparent:true,opacity:0.16}));
+recipGroup.add(ewald);
+const rBeamMat=new THREE.MeshBasicMaterial({color:0xffce54});
+const rShaft=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,1.1,12),rBeamMat);
+rShaft.rotation.z=-Math.PI/2; rShaft.position.set(-0.25,0,0); recipGroup.add(rShaft);
+const rHead=new THREE.Mesh(new THREE.ConeGeometry(0.02,0.06,12),rBeamMat);
+rHead.rotation.z=-Math.PI/2; rHead.position.set(0.35,0,0); recipGroup.add(rHead);
+recipGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.01,10,10),new THREE.MeshBasicMaterial({color:0xffffff})));
+
+let pts=null, atomMeshes=[], realRays=null, detSpots=null;
+
+/* ---------- info + orientation labels ---------- */
 function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;cv.height=1024*h/w;const ctx=cv.getContext('2d');
   const tex=new THREE.CanvasTexture(cv);const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tex,transparent:true}));
   m.userData={cv,ctx,tex};return m;}
@@ -149,9 +141,7 @@ function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.wid
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.3',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
-  ctx.fillStyle='#8b949e';ctx.font='34px sans-serif';ctx.fillText('Left panel: pick structure & show/hide (point + trigger)  ·  drag scene to reorient  ·  release: goniometer spins',cv.width/2,250);tex.needsUpdate=true;}
-
-// orientation labels — sprites always face the viewer (readable from any angle, no mirroring)
+  ctx.fillStyle='#8b949e';ctx.font='32px sans-serif';ctx.fillText('Left panel: tap buttons/toggles · hold trigger on a slider & sweep · drag scene to reorient',cv.width/2,250);tex.needsUpdate=true;}
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
   ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=color;ctx.font='bold 120px sans-serif';ctx.fillText(text,512,128);
   const tex=new THREE.CanvasTexture(cv);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
@@ -159,74 +149,44 @@ function makeLabel(text,color){const cv=document.createElement('canvas');cv.widt
 const realLabel=makeLabel('REAL SPACE','#8fd0ff'); realLabel.position.set(-0.7,1.78,-1.4); scene.add(realLabel);
 const recipLabel=makeLabel('RECIPROCAL SPACE','#ffce54'); recipLabel.position.set(0,2.05,1.7); scene.add(recipLabel);
 
-/* ---------- left control panel: structure picker + show/hide toggles (point the laser + trigger) ---------- */
+/* ---------- visibility + rebuild helpers ---------- */
 let showCrystal=true, showRays=true, showRecip=true, showDet=true;
 function applyVis(){crystalGroup.visible=showCrystal; if(realRays)realRays.visible=showRays;
   recipGroup.visible=showRecip; recipLabel.visible=showRecip; detGroup.visible=showDet;}
-
-const P_W=420, P_H=660;
-const panelCv=document.createElement('canvas'); panelCv.width=P_W; panelCv.height=P_H;
-const panelCtx=panelCv.getContext('2d'); const panelTex=new THREE.CanvasTexture(panelCv);
-const panel=new THREE.Mesh(new THREE.PlaneGeometry(0.6,0.6*P_H/P_W),
-  new THREE.MeshBasicMaterial({map:panelTex,transparent:true,side:THREE.DoubleSide}));
-panel.position.set(-1.25,1.45,-1.05); panel.rotation.y=0.8; scene.add(panel);   // user's left, angled to face them
-
-const regions=[];
-[['NaCl',0],['Diamond',1],['CsCl',2],['Ice Ih',3]].forEach((b,idx)=>regions.push({x:20,y:110+idx*60,w:380,h:52,type:'struct',i:b[1],label:b[0]}));
-[['Atoms / cell','crystal'],['Diffracted rays','rays'],['Reciprocal points','recip'],['Detector','det']].forEach((b,idx)=>regions.push({x:20,y:398+idx*56,w:380,h:48,type:'toggle',k:b[1],label:b[0]}));
-
-function rrect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
-let hoverRegion=null;
-function drawPanel(){const g=panelCtx; g.clearRect(0,0,P_W,P_H);
-  g.fillStyle='rgba(13,17,23,0.93)'; g.fillRect(0,0,P_W,P_H);
-  g.strokeStyle='#30363d'; g.lineWidth=3; g.strokeRect(2,2,P_W-4,P_H-4);
-  g.textAlign='left'; g.textBaseline='middle';
-  g.fillStyle='#58a6ff'; g.font='bold 30px sans-serif'; g.fillText('Controls',20,42);
-  g.fillStyle='#8b949e'; g.font='bold 20px sans-serif'; g.fillText('STRUCTURE',22,92); g.fillText('SHOW / HIDE',22,378);
-  const stv={crystal:showCrystal,rays:showRays,recip:showRecip,det:showDet};
-  for(const r of regions){const hov=(r===hoverRegion), active=(r.type==='struct'&&cur===r.i);
-    g.fillStyle=active?'#1f6feb':hov?'#30363d':'#21262d'; rrect(g,r.x,r.y,r.w,r.h,8); g.fill();
-    g.strokeStyle=hov?'#58a6ff':'#30363d'; g.lineWidth=2; rrect(g,r.x,r.y,r.w,r.h,8); g.stroke();
-    g.fillStyle=active?'#ffffff':'#c9d1d9'; g.font='24px sans-serif'; g.fillText(r.label,r.x+16,r.y+r.h/2+1);
-    if(r.type==='toggle'){const s=26,bx=r.x+r.w-42,by=r.y+r.h/2-s/2;
-      g.strokeStyle='#8b949e'; g.lineWidth=2; rrect(g,bx,by,s,s,5); g.stroke();
-      if(stv[r.k]){g.fillStyle='#3fb950'; rrect(g,bx+4,by+4,s-8,s-8,3); g.fill();}}
+function rebuildEwald(){const r=Math.min(SC_R/S.lam,6); ewald.scale.setScalar(r); ewald.position.x=-r;}
+function rebuildRings(){for(const t of ringTags)detGroup.remove(t); ringTags=[];
+  for(const d of [S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3]){const s=S.lam/(2*d); if(s>=1)continue;
+    const rr=S.dist*Math.tan(2*Math.asin(s));
+    if(rr>0.03&&rr<DET_HALF*0.98){const tg=makeTag(d.toFixed(2)+'Å'); tg.position.set(S.dist-0.003,rr*0.72,rr*0.72); detGroup.add(tg); ringTags.push(tg);}}}
+function rebuildDetector(){detPanel.position.x=S.dist; beamstop.position.x=S.dist;
+  outBeam.scale.y=S.dist; outBeam.position.x=S.dist/2; rebuildRings();}
+function recomputeStructure(){loadStructure(cur);}
+function buildCrystal(st){                       // atoms + cell boxes, tiled S.cells^3 (supercell), centred on the sample
+  atomMeshes.forEach(m=>crystalGroup.remove(m)); atomMeshes=[];
+  const n=S.cells, M=st.rc.M, sc=st.sc, av=scl(M[0],sc), bv=scl(M[1],sc), cv=scl(M[2],sc);
+  const ctr=[(M[0][0]+M[1][0]+M[2][0])*n/2*sc,(M[0][1]+M[1][1]+M[2][1])*n/2*sc,(M[0][2]+M[1][2]+M[2][2])*n/2*sc];
+  const P=(fx,fy,fz)=>[fx*av[0]+fy*bv[0]+fz*cv[0]-ctr[0], fx*av[1]+fy*bv[1]+fz*cv[1]-ctr[1], fx*av[2]+fy*bv[2]+fz*cv[2]-ctr[2]];
+  const cu=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]], E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++){
+    for(const a of st.atoms){const e=EL[a[0]], occ=a[5]||1, p=P(a[1]+i,a[2]+j,a[3]+k);
+      const m=new THREE.Mesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60,transparent:occ<1,opacity:occ<1?0.5:1}));
+      const r=0.055*Math.cbrt(e.r); m.scale.set(r,r,r); m.position.set(p[0],p[1],p[2]); crystalGroup.add(m); atomMeshes.push(m);}
+    const corners=cu.map(u=>new THREE.Vector3(...P(u[0]+i,u[1]+j,u[2]+k)));
+    const bl=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(E.flatMap(e=>[corners[e[0]],corners[e[1]]])),new THREE.LineBasicMaterial({color:0x8899aa,transparent:true,opacity:0.55}));
+    crystalGroup.add(bl); atomMeshes.push(bl);
   }
-  panelTex.needsUpdate=true;
 }
 
-const raycaster=new THREE.Raycaster(), _rot=new THREE.Matrix4(), _ndc=new THREE.Vector2();
-const PANEL_MISS={none:true};
-function pickRegion(){const hits=raycaster.intersectObject(panel,false);
-  if(!hits.length||!hits[0].uv)return null;
-  const cx=hits[0].uv.x*P_W, cy=(1-hits[0].uv.y)*P_H;
-  for(const r of regions) if(cx>=r.x&&cx<=r.x+r.w&&cy>=r.y&&cy<=r.y+r.h) return r;
-  return PANEL_MISS;}
-function rayFromController(c){_rot.identity().extractRotation(c.matrixWorld);
-  raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
-  raycaster.ray.direction.set(0,0,-1).applyMatrix4(_rot).normalize();}
-function activate(r){if(!r||r.none)return;
-  if(r.type==='struct')loadStructure(r.i);
-  else{if(r.k==='crystal')showCrystal=!showCrystal; else if(r.k==='rays')showRays=!showRays;
-       else if(r.k==='recip')showRecip=!showRecip; else if(r.k==='det')showDet=!showDet; applyVis();}
-  drawPanel();}
-function updateHover(){let hr=null;
-  if(renderer.xr.isPresenting){for(const c of [c0,c1]){rayFromController(c);const r=pickRegion();if(r&&r!==PANEL_MISS){hr=r;break;}}}
-  else{raycaster.setFromCamera(_ndc,camera);const r=pickRegion();if(r&&r!==PANEL_MISS)hr=r;}
-  if(hr!==hoverRegion){hoverRegion=hr; drawPanel();}}
-
+/* ---------- load / rebuild the current structure buffers ---------- */
 let cur=-1;
 function loadStructure(i){
-  cur=(i+STRUCTS.length)%STRUCTS.length; const st=STRUCTS[cur];
-  const n=st.refl.length;
-  // reciprocal points
+  cur=(i+STRUCTS.length)%STRUCTS.length; const st=STRUCTS[cur]; prep(st); const n=st.refl.length;
   if(pts)recipGroup.remove(pts);
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
   g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
   pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.022,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5}));
   recipGroup.add(pts);
-  // real-space diffracted rays (sample → detector) + detector spots
   if(realRays)realGroup.remove(realRays);
   if(detSpots)detGroup.remove(detSpots);
   const rg=new THREE.BufferGeometry(); rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*6),3));
@@ -237,27 +197,18 @@ function loadStructure(i){
   sg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
   detSpots=new THREE.Points(sg,new THREE.PointsMaterial({size:0.045,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5,depthWrite:false}));
   detSpots.frustumCulled=false; detGroup.add(detSpots);
-  // real-space atoms
-  atomMeshes.forEach(m=>crystalGroup.remove(m)); atomMeshes=[];
-  for(const a of st.satoms){const e=EL[a.el];
-    const m=new THREE.Mesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60,transparent:a.occ<1,opacity:a.occ<1?0.5:1}));
-    const r=0.055*Math.cbrt(e.r); m.scale.set(r,r,r); m.position.set(...a.p); crystalGroup.add(m); atomMeshes.push(m);}
-  // cell box
-  const C=st.corners, E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-  const bl=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(E.flatMap(e=>[new THREE.Vector3(...C[e[0]]),new THREE.Vector3(...C[e[1]])])),new THREE.LineBasicMaterial({color:0x8899aa}));
-  crystalGroup.add(bl); atomMeshes.push(bl);
+  buildCrystal(st);
   setInfo(st.name); applyVis();
 }
 
-/* ---------- detector face (dark plane + resolution rings + beam centre) ---------- */
+/* ---------- detector face (rings from current λ / dmin / distance) ---------- */
 function drawDetectorFace(){
   const W=512,cx=256,cy=256; detCtx.clearRect(0,0,W,W);
   detCtx.fillStyle='rgba(5,8,13,0.55)'; detCtx.fillRect(0,0,W,W);
-  detCtx.setLineDash([4,5]); detCtx.strokeStyle='rgba(63,143,111,0.7)';         // rings only; labels are camera-facing sprites (readable from both sides)
-  for(const d of [DMIN,DMIN*1.4,DMIN*2,DMIN*3]){                         // rings align with the 3-D spots (same DET_DIST/DET_HALF mapping)
-    const th=Math.asin(Math.min(0.999,LAMBDA/(2*d))); const rpx=DET_DIST*Math.tan(2*th)/DET_HALF*256;
-    if(rpx>6&&rpx<254){detCtx.beginPath();detCtx.arc(cx,cy,rpx,0,7);detCtx.stroke();}
-  }
+  detCtx.setLineDash([4,5]); detCtx.strokeStyle='rgba(63,143,111,0.7)';
+  for(const d of [S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3]){const s=S.lam/(2*d); if(s>=1)continue;
+    const rpx=S.dist*Math.tan(2*Math.asin(s))/DET_HALF*256;
+    if(rpx>6&&rpx<254){detCtx.beginPath();detCtx.arc(cx,cy,rpx,0,7);detCtx.stroke();}}
   detCtx.setLineDash([]); detCtx.strokeStyle='#30363d'; detCtx.beginPath();detCtx.arc(cx,cy,254,0,7);detCtx.stroke();
   detCtx.strokeStyle='#8a94a0'; detCtx.beginPath();detCtx.moveTo(cx-7,cy);detCtx.lineTo(cx+7,cy);detCtx.moveTo(cx,cy-7);detCtx.lineTo(cx,cy+7);detCtx.stroke();
   detTex.needsUpdate=true;
@@ -266,28 +217,27 @@ function drawDetectorFace(){
 /* ---------- per-frame diffraction ---------- */
 const _v=new THREE.Vector3(), orientation=new THREE.Quaternion();
 function computeFrame(){
-  const st=STRUCTS[cur]; const refl=st.refl;
+  const st=STRUCTS[cur], refl=st.refl, K=1/S.lam, ct=S.contrast;
   const pos=pts.geometry.attributes.position.array, col=pts.geometry.attributes.color.array;
   const ray=realRays.geometry.attributes.position.array;
   const spos=detSpots.geometry.attributes.position.array, scol=detSpots.geometry.attributes.color.array;
   let rN=0, sN=0;
   for(let i=0;i<refl.length;i++){
     const p=refl[i].p; _v.set(p[0],p[1],p[2]).applyQuaternion(orientation);
-    const prx=_v.x, pry=_v.y, prz=_v.z, b=refl[i].b;
-    pos[i*3]=prx*SC_R; pos[i*3+1]=pry*SC_R; pos[i*3+2]=prz*SC_R;          // reciprocal display (rotated, scaled)
-    const e=Math.hypot(prx+K,pry,prz)-K;                                 // excitation (beam +x, s0=(K,0,0))
+    const prx=_v.x, pry=_v.y, prz=_v.z, b=refl[i].b, bd=(ct===1)?b:Math.pow(b,ct);
+    pos[i*3]=prx*SC_R; pos[i*3+1]=pry*SC_R; pos[i*3+2]=prz*SC_R;
+    const e=Math.hypot(prx+K,pry,prz)-K;
     if(Math.abs(e)<BAND){
-      col[i*3]=1; col[i*3+1]=0.28; col[i*3+2]=0.26;                      // reciprocal point diffracting → red
-      const sx=prx+K, sy=pry, sz=prz;                                    // diffracted direction ŝ = pr + s0 (beam +x)
-      if(sx>0.05){const t=DET_DIST/sx, hy=sy*t, hz=sz*t;                 // hit on detector plane x = DET_DIST
+      col[i*3]=1; col[i*3+1]=0.28; col[i*3+2]=0.26;
+      const sx=prx+K;
+      if(sx>0.05 && bd>0.02){const t=S.dist/sx, hy=pry*t, hz=prz*t;
         if(Math.abs(hy)<DET_HALF&&Math.abs(hz)<DET_HALF){
-          ray[rN++]=0; ray[rN++]=0; ray[rN++]=0;                        // diffracted ray: sample → hit
-          ray[rN++]=DET_DIST; ray[rN++]=hy; ray[rN++]=hz;
-          spos[sN*3]=DET_DIST-0.004; spos[sN*3+1]=hy; spos[sN*3+2]=hz;  // spot just in front of the plane
-          const cb=0.45+0.55*b; scol[sN*3]=1; scol[sN*3+1]=0.32*cb; scol[sN*3+2]=0.30*cb; sN++;
+          ray[rN++]=0; ray[rN++]=0; ray[rN++]=0; ray[rN++]=S.dist; ray[rN++]=hy; ray[rN++]=hz;
+          spos[sN*3]=S.dist-0.004; spos[sN*3+1]=hy; spos[sN*3+2]=hz;
+          const cb=0.45+0.55*bd; scol[sN*3]=1; scol[sN*3+1]=0.32*cb; scol[sN*3+2]=0.30*cb; sN++;
         }
       }
-    } else {const g=0.42+0.55*b; col[i*3]=g*0.55; col[i*3+1]=g*0.72; col[i*3+2]=g;}   // steel-blue lattice
+    } else {const g=0.42+0.55*bd; col[i*3]=g*0.55; col[i*3+1]=g*0.72; col[i*3+2]=g;}
   }
   for(let j=rN;j<ray.length;j++)ray[j]=0;
   pts.geometry.attributes.position.needsUpdate=true; pts.geometry.attributes.color.needsUpdate=true;
@@ -295,34 +245,128 @@ function computeFrame(){
   detSpots.geometry.setDrawRange(0,sN);
   detSpots.geometry.attributes.position.needsUpdate=true; detSpots.geometry.attributes.color.needsUpdate=true;
   drawDetectorFace();
-  crystalGroup.quaternion.copy(orientation);                           // crystal rotates about the goniometer/mounting
+  crystalGroup.quaternion.copy(orientation);
 }
 
-/* ---------- interaction: mounting = grab/drag (free) · goniometer = auto-spin about z when released ---------- */
-const GONO=new THREE.Vector3(0,0,1);                                   // goniometer spindle = z (horizontal ⟂ beam)
-const idle=new THREE.Quaternion().setFromAxisAngle(GONO,0.004);        // one small φ step per frame
-let grabbing=null, mouseDown=false;
+/* ---------- left control panel ---------- */
+function lamDisplay(){const l=S.lam;
+  if(S.lamUnit==='A')return l.toFixed(l<0.1?4:2)+' Å';
+  if(S.lamUnit==='xray'){const e=12.39842/l; return e.toFixed(e<10?2:1)+' keV';}
+  const W=(12.2639/l)**2,a=0.97845e-6; const kv=(-1+Math.sqrt(1+4*a*W))/(2*a)/1000; return kv.toFixed(kv<10?2:1)+' keV';}
+
+const P_W=460, P_H=830;
+const panelCv=document.createElement('canvas'); panelCv.width=P_W; panelCv.height=P_H;
+const panelCtx=panelCv.getContext('2d'); const panelTex=new THREE.CanvasTexture(panelCv);
+const panel=new THREE.Mesh(new THREE.PlaneGeometry(0.66,0.66*P_H/P_W),
+  new THREE.MeshBasicMaterial({map:panelTex,transparent:true,side:THREE.DoubleSide}));
+panel.position.set(-1.15,1.4,0.0); panel.rotation.y=Math.PI/2; scene.add(panel);   // left of user, plane ⟂ beam, midway between real (front) & reciprocal (back)
+
+const regions=[];
+[['NaCl',0],['Diamond',1],['CsCl',2],['Ice Ih',3]].forEach((b,idx)=>{const c=idx%2,rw=(idx/2)|0;
+  regions.push({type:'struct',i:b[1],label:b[0],x:16+c*222,y:68+rw*48,w:206,h:42});});
+[['1×1×1',1],['2×2×2',2],['3×3×3',3]].forEach((b,idx)=>regions.push({type:'cells',n:b[1],label:b[0],x:16+idx*146,y:192,w:136,h:38}));
+regions.push({type:'slider',id:'lam',label:'wavelength',x:16,y:270,w:428,h:46,
+  tOf:()=>Math.log(S.lam/0.02)/Math.log(125), setFromT:t=>{S.lam=0.02*Math.pow(125,t);rebuildEwald();rebuildRings();}, disp:lamDisplay});
+[['Å','A'],['X-ray keV','xray'],['e⁻ keV','electron']].forEach((u,idx)=>regions.push({type:'unit',val:u[1],label:u[0],x:16+idx*145,y:322,w:137,h:32}));
+regions.push({type:'slider',id:'dist',label:'detector dist',x:16,y:394,w:428,h:46,
+  tOf:()=>Math.log(S.dist/0.25)/Math.log(20), setFromT:t=>{S.dist=0.25*Math.pow(20,t);rebuildDetector();}, disp:()=>Math.round(S.dist*1000)+' mm'});
+regions.push({type:'slider',id:'dmin',label:'resolution dmin',x:16,y:480,w:428,h:46,
+  tOf:()=>(S.dmin-0.7)/2.3, setFromT:t=>{S.dmin=0.7+t*2.3;recomputeStructure();}, disp:()=>S.dmin.toFixed(2)+' Å'});
+regions.push({type:'slider',id:'contrast',label:'spot contrast',x:16,y:566,w:428,h:46,
+  tOf:()=>(S.contrast-0.3)/3.7, setFromT:t=>{S.contrast=0.3+t*3.7;}, disp:()=>S.contrast.toFixed(1)});
+regions.push({type:'slider',id:'spin',label:'spin speed',x:16,y:620,w:428,h:46,
+  tOf:()=>S.spin/0.02, setFromT:t=>{S.spin=t*0.02;}, disp:()=>Math.round(S.spin/0.02*100)+'%'});
+[['Atoms / cell','crystal'],['Diffracted rays','rays'],['Reciprocal','recip'],['Detector','det']].forEach((b,idx)=>{const c=idx%2,rw=(idx/2)|0;
+  regions.push({type:'toggle',k:b[1],label:b[0],x:16+c*222,y:704+rw*48,w:206,h:42});});
+
+function rrect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+let hoverRegion=null;
+function drawPanel(){const g=panelCtx; g.clearRect(0,0,P_W,P_H);
+  g.fillStyle='rgba(13,17,23,0.94)'; g.fillRect(0,0,P_W,P_H);
+  g.strokeStyle='#30363d'; g.lineWidth=3; g.strokeRect(2,2,P_W-4,P_H-4);
+  g.textBaseline='middle'; g.textAlign='left';
+  g.fillStyle='#58a6ff'; g.font='bold 26px sans-serif'; g.fillText('Controls',16,30);
+  g.fillStyle='#8b949e'; g.font='bold 17px sans-serif';
+  g.fillText('STRUCTURE',16,56); g.fillText('CELLS',16,180); g.fillText('BEAM',16,256); g.fillText('DETECTOR',16,380);
+  g.fillText('RESOLUTION',16,466); g.fillText('DISPLAY',16,552); g.fillText('SHOW / HIDE',16,692);
+  const tstate={crystal:showCrystal,rays:showRays,recip:showRecip,det:showDet};
+  for(const r of regions){const hov=(r===hoverRegion);
+    if(r.type==='slider'){
+      g.textAlign='left'; g.fillStyle='#c9d1d9'; g.font='19px sans-serif'; g.fillText(r.label,r.x,r.y+13);
+      g.textAlign='right'; g.fillStyle='#58a6ff'; g.fillText(r.disp(),r.x+r.w,r.y+13); g.textAlign='left';
+      const tx=r.x+8,tw=r.w-16,ty=r.y+r.h-12,t=Math.max(0,Math.min(1,r.tOf()));
+      g.lineWidth=6; g.strokeStyle='#30363d'; g.beginPath();g.moveTo(tx,ty);g.lineTo(tx+tw,ty);g.stroke();
+      g.strokeStyle=hov?'#8fd0ff':'#1f6feb'; g.beginPath();g.moveTo(tx,ty);g.lineTo(tx+t*tw,ty);g.stroke();
+      g.fillStyle=hov?'#8fd0ff':'#58a6ff'; g.beginPath();g.arc(tx+t*tw,ty,9,0,7);g.fill();
+    } else {
+      const active=(r.type==='struct'&&cur===r.i)||(r.type==='unit'&&S.lamUnit===r.val)||(r.type==='cells'&&S.cells===r.n);
+      g.fillStyle=active?'#1f6feb':hov?'#30363d':'#21262d'; rrect(g,r.x,r.y,r.w,r.h,7); g.fill();
+      g.strokeStyle=hov?'#58a6ff':'#30363d'; g.lineWidth=2; rrect(g,r.x,r.y,r.w,r.h,7); g.stroke();
+      g.fillStyle=active?'#ffffff':'#c9d1d9'; g.font=(r.type==='unit'||r.type==='cells')?'18px sans-serif':'20px sans-serif'; g.textAlign='left';
+      g.fillText(r.label,r.x+12,r.y+r.h/2+1);
+      if(r.type==='toggle'){const on=tstate[r.k], s=22,bx=r.x+r.w-32,by=r.y+r.h/2-s/2;
+        g.strokeStyle='#8b949e';g.lineWidth=2;rrect(g,bx,by,s,s,4);g.stroke();
+        if(on){g.fillStyle='#3fb950';rrect(g,bx+4,by+4,s-8,s-8,2);g.fill();}}
+    }
+  }
+  panelTex.needsUpdate=true;
+}
+
+const raycaster=new THREE.Raycaster(), _rot=new THREE.Matrix4(), _ndc=new THREE.Vector2();
+const PANEL_MISS={none:true}; let _hitCX=0,_hitCY=0,_hitOK=false;
+function pickRegion(){const hits=raycaster.intersectObject(panel,false);
+  if(!hits.length||!hits[0].uv){_hitOK=false;return null;}
+  _hitOK=true; _hitCX=hits[0].uv.x*P_W; _hitCY=(1-hits[0].uv.y)*P_H;
+  for(const r of regions) if(_hitCX>=r.x&&_hitCX<=r.x+r.w&&_hitCY>=r.y&&_hitCY<=r.y+r.h) return r;
+  return PANEL_MISS;}
+function rayFromController(c){_rot.identity().extractRotation(c.matrixWorld);
+  raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
+  raycaster.ray.direction.set(0,0,-1).applyMatrix4(_rot).normalize();}
+function sliderT(r,cx){return Math.max(0,Math.min(1,(cx-(r.x+8))/(r.w-16)));}
+function applySlider(r,t){r.setFromT(t); drawPanel();}
+function activate(r){if(!r||r.none)return;
+  if(r.type==='struct')loadStructure(r.i);
+  else if(r.type==='cells'){S.cells=r.n; buildCrystal(STRUCTS[cur]);}
+  else if(r.type==='unit')S.lamUnit=r.val;
+  else if(r.type==='toggle'){if(r.k==='crystal')showCrystal=!showCrystal;else if(r.k==='rays')showRays=!showRays;
+    else if(r.k==='recip')showRecip=!showRecip;else if(r.k==='det')showDet=!showDet; applyVis();}
+  drawPanel();}
+function updateHover(){let hr=null;
+  if(renderer.xr.isPresenting){for(const c of [c0,c1]){rayFromController(c);const r=pickRegion();if(r&&r!==PANEL_MISS){hr=r;break;}}}
+  else{raycaster.setFromCamera(_ndc,camera);const r=pickRegion();if(r&&r!==PANEL_MISS)hr=r;}
+  if(hr!==hoverRegion){hoverRegion=hr; drawPanel();}}
+
+/* ---------- interaction ---------- */
+const GONO=new THREE.Vector3(0,0,1), spinQ=new THREE.Quaternion();
+let grabbing=null, mouseDown=false, draggingSlider=null, zoom=1;
+function setZoom(z){zoom=Math.max(0.3,Math.min(4,z)); crystalGroup.scale.setScalar(zoom);}
+function readZoom(){const s=renderer.xr.getSession(); if(!s)return;          // right thumbstick up/down → zoom the crystal
+  for(const src of s.inputSources){ if(src.handedness==='right'&&src.gamepad){const ax=src.gamepad.axes;
+    const y=ax.length>=4?ax[3]:(ax[1]||0); if(Math.abs(y)>0.15) setZoom(zoom*(1-y*0.02)); return; }}}
 const grabStart=new THREE.Quaternion(), orientStart=new THREE.Quaternion(), tmpQ=new THREE.Quaternion(), tmpQ2=new THREE.Quaternion();
-// desktop mouse: free reorientation (mounting); pauses the goniometer spin while dragging
 (function(){let px=0,py=0;const el=renderer.domElement;
-  const setNDC=e=>_ndc.set(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1);
-  el.addEventListener('mousedown',e=>{setNDC(e); raycaster.setFromCamera(_ndc,camera);
-    const r=pickRegion(); if(r){activate(r); return;}                 // clicked the control panel → no scene drag
+  const setNDC=e=>_ndc.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
+  el.addEventListener('wheel',e=>{e.preventDefault(); setZoom(zoom*(1-Math.sign(e.deltaY)*0.06));},{passive:false});   // desktop: wheel zooms the crystal
+  el.addEventListener('mousedown',e=>{setNDC(e);raycaster.setFromCamera(_ndc,camera);const r=pickRegion();
+    if(r&&r.type==='slider'){draggingSlider={region:r,src:'mouse'};applySlider(r,sliderT(r,_hitCX));return;}
+    if(r){activate(r);return;}
     mouseDown=true;px=e.clientX;py=e.clientY;});
-  window.addEventListener('mouseup',()=>mouseDown=false);
-  window.addEventListener('mousemove',e=>{setNDC(e); if(!mouseDown)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+  window.addEventListener('mouseup',()=>{mouseDown=false;if(draggingSlider&&draggingSlider.src==='mouse')draggingSlider=null;});
+  window.addEventListener('mousemove',e=>{setNDC(e);
+    if(draggingSlider&&draggingSlider.src==='mouse'){raycaster.setFromCamera(_ndc,camera);pickRegion();if(_hitOK)applySlider(draggingSlider.region,sliderT(draggingSlider.region,_hitCX));return;}
+    if(!mouseDown)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
     tmpQ.setFromAxisAngle(new THREE.Vector3(0,1,0),dx*0.01); tmpQ2.setFromAxisAngle(new THREE.Vector3(1,0,0),dy*0.01);
     orientation.premultiply(tmpQ.multiply(tmpQ2));});
 })();
-// VR controllers
 const c0=renderer.xr.getController(0), c1=renderer.xr.getController(1);
 [c0,c1].forEach(c=>{scene.add(c);
-  const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-0.6)]),new THREE.LineBasicMaterial({color:0x58a6ff}));
-  c.add(ray);
+  const rl=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1.2)]),new THREE.LineBasicMaterial({color:0x58a6ff}));
+  c.add(rl);
   c.addEventListener('selectstart',()=>{rayFromController(c);const r=pickRegion();
-    if(r){activate(r);return;}                                        // pointed at the control panel → click it, don't grab
+    if(r&&r.type==='slider'){draggingSlider={region:r,ctrl:c};applySlider(r,sliderT(r,_hitCX));return;}
+    if(r){activate(r);return;}
     grabbing=c;c.getWorldQuaternion(grabStart);orientStart.copy(orientation);});
-  c.addEventListener('selectend',()=>{if(grabbing===c)grabbing=null;});
+  c.addEventListener('selectend',()=>{if(grabbing===c)grabbing=null; if(draggingSlider&&draggingSlider.ctrl===c)draggingSlider=null;});
   c.addEventListener('squeezestart',()=>loadStructure(cur+1));
 });
 
@@ -345,11 +389,12 @@ if(navigator.xr){
 }
 
 /* ---------- loop ---------- */
-loadStructure(0); drawPanel();
+loadStructure(0); rebuildEwald(); rebuildDetector(); drawPanel();
 renderer.setAnimationLoop(()=>{
-  updateHover();
+  if(draggingSlider&&draggingSlider.ctrl){rayFromController(draggingSlider.ctrl);pickRegion();if(_hitOK)applySlider(draggingSlider.region,sliderT(draggingSlider.region,_hitCX));}
+  updateHover(); readZoom();
   if(grabbing){grabbing.getWorldQuaternion(tmpQ); tmpQ2.copy(grabStart).invert(); orientation.copy(tmpQ.multiply(tmpQ2)).multiply(orientStart);}
-  else if(!mouseDown) orientation.premultiply(idle);      // released → goniometer spins about z
+  else if(!mouseDown && !draggingSlider && S.spin>0){spinQ.setFromAxisAngle(GONO,S.spin); orientation.premultiply(spinQ);}
   computeFrame();
   renderer.render(scene,camera);
 });
