@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Crystal Lab VR v0.2 — reciprocal space in your headset</title>
+<title>Crystal Lab VR v0.3 — reciprocal space in your headset</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
   #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR v0.2 — <b>real space in front</b> (beam left→right, crystal on the goniometer, diffracted rays to a detector ⟂ the beam), <b>reciprocal space behind you</b>. Drag to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR v0.3 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b> (point the laser + trigger to pick a structure or show/hide parts). Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -106,18 +106,19 @@ const beamstop=new THREE.Mesh(new THREE.SphereGeometry(0.013,12,12),new THREE.Me
 beamstop.position.set(DET_DIST,0,0); realGroup.add(beamstop);                               // beamstop at detector centre
 const spindle=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.9,12),new THREE.MeshBasicMaterial({color:0x8899aa,transparent:true,opacity:0.65}));
 spindle.rotation.x=Math.PI/2; realGroup.add(spindle);                                       // goniometer spindle along z (horizontal ⟂ beam)
-// detector plane ⟂ beam, at the downstream end of the beam
+// detector plane ⟂ beam, at the downstream end of the beam (in detGroup so it can be hidden as a unit)
+const detGroup=new THREE.Group(); realGroup.add(detGroup);
 const detCanvas=document.createElement('canvas'); detCanvas.width=detCanvas.height=512;
 const detCtx=detCanvas.getContext('2d'); const detTex=new THREE.CanvasTexture(detCanvas);
 const detPanel=new THREE.Mesh(new THREE.PlaneGeometry(2*DET_HALF,2*DET_HALF),new THREE.MeshBasicMaterial({map:detTex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));
-detPanel.rotation.y=Math.PI/2; detPanel.position.set(DET_DIST,0,0); realGroup.add(detPanel); // normal = +x (⟂ beam)
+detPanel.rotation.y=Math.PI/2; detPanel.position.set(DET_DIST,0,0); detGroup.add(detPanel); // normal = +x (⟂ beam)
 // resolution-ring labels as camera-facing sprites → read normally from either side of the detector
 function makeTag(text){const cv=document.createElement('canvas');cv.width=256;cv.height=64;const c=cv.getContext('2d');
   c.textAlign='center';c.textBaseline='middle';c.fillStyle='#9fe0bf';c.font='bold 44px sans-serif';c.fillText(text,128,34);
   const t=new THREE.CanvasTexture(cv);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false}));
   s.scale.set(0.13,0.033,1);return s;}
 for(const d of [DMIN,DMIN*1.4,DMIN*2,DMIN*3]){const th=Math.asin(Math.min(0.999,LAMBDA/(2*d)));const rr=DET_DIST*Math.tan(2*th);
-  if(rr>0.03&&rr<DET_HALF*0.98){const tg=makeTag(d.toFixed(2)+'Å');tg.position.set(DET_DIST-0.003,rr*0.72,rr*0.72);realGroup.add(tg);}}
+  if(rr>0.03&&rr<DET_HALF*0.98){const tg=makeTag(d.toFixed(2)+'Å');tg.position.set(DET_DIST-0.003,rr*0.72,rr*0.72);detGroup.add(tg);}}
 // crystal (rotates with orientation about the sample = realGroup origin)
 const crystalGroup=new THREE.Group(); realGroup.add(crystalGroup);
 // reciprocal group (Ewald sphere + beam fixed; points rotate with orientation)
@@ -146,9 +147,9 @@ function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;
 const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.2',cv.width/2,90);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.3',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
-  ctx.fillStyle='#8b949e';ctx.font='34px sans-serif';ctx.fillText('Trigger/drag: reorient  ·  release: goniometer spins  ·  Grip: next  ·  reciprocal is behind you',cv.width/2,250);tex.needsUpdate=true;}
+  ctx.fillStyle='#8b949e';ctx.font='34px sans-serif';ctx.fillText('Left panel: pick structure & show/hide (point + trigger)  ·  drag scene to reorient  ·  release: goniometer spins',cv.width/2,250);tex.needsUpdate=true;}
 
 // orientation labels — sprites always face the viewer (readable from any angle, no mirroring)
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
@@ -157,6 +158,62 @@ function makeLabel(text,color){const cv=document.createElement('canvas');cv.widt
   sp.scale.set(0.8,0.2,1);return sp;}
 const realLabel=makeLabel('REAL SPACE','#8fd0ff'); realLabel.position.set(-0.7,1.78,-1.4); scene.add(realLabel);
 const recipLabel=makeLabel('RECIPROCAL SPACE','#ffce54'); recipLabel.position.set(0,2.05,1.7); scene.add(recipLabel);
+
+/* ---------- left control panel: structure picker + show/hide toggles (point the laser + trigger) ---------- */
+let showCrystal=true, showRays=true, showRecip=true, showDet=true;
+function applyVis(){crystalGroup.visible=showCrystal; if(realRays)realRays.visible=showRays;
+  recipGroup.visible=showRecip; recipLabel.visible=showRecip; detGroup.visible=showDet;}
+
+const P_W=420, P_H=660;
+const panelCv=document.createElement('canvas'); panelCv.width=P_W; panelCv.height=P_H;
+const panelCtx=panelCv.getContext('2d'); const panelTex=new THREE.CanvasTexture(panelCv);
+const panel=new THREE.Mesh(new THREE.PlaneGeometry(0.6,0.6*P_H/P_W),
+  new THREE.MeshBasicMaterial({map:panelTex,transparent:true,side:THREE.DoubleSide}));
+panel.position.set(-1.25,1.45,-1.05); panel.rotation.y=0.8; scene.add(panel);   // user's left, angled to face them
+
+const regions=[];
+[['NaCl',0],['Diamond',1],['CsCl',2],['Ice Ih',3]].forEach((b,idx)=>regions.push({x:20,y:110+idx*60,w:380,h:52,type:'struct',i:b[1],label:b[0]}));
+[['Atoms / cell','crystal'],['Diffracted rays','rays'],['Reciprocal points','recip'],['Detector','det']].forEach((b,idx)=>regions.push({x:20,y:398+idx*56,w:380,h:48,type:'toggle',k:b[1],label:b[0]}));
+
+function rrect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+let hoverRegion=null;
+function drawPanel(){const g=panelCtx; g.clearRect(0,0,P_W,P_H);
+  g.fillStyle='rgba(13,17,23,0.93)'; g.fillRect(0,0,P_W,P_H);
+  g.strokeStyle='#30363d'; g.lineWidth=3; g.strokeRect(2,2,P_W-4,P_H-4);
+  g.textAlign='left'; g.textBaseline='middle';
+  g.fillStyle='#58a6ff'; g.font='bold 30px sans-serif'; g.fillText('Controls',20,42);
+  g.fillStyle='#8b949e'; g.font='bold 20px sans-serif'; g.fillText('STRUCTURE',22,92); g.fillText('SHOW / HIDE',22,378);
+  const stv={crystal:showCrystal,rays:showRays,recip:showRecip,det:showDet};
+  for(const r of regions){const hov=(r===hoverRegion), active=(r.type==='struct'&&cur===r.i);
+    g.fillStyle=active?'#1f6feb':hov?'#30363d':'#21262d'; rrect(g,r.x,r.y,r.w,r.h,8); g.fill();
+    g.strokeStyle=hov?'#58a6ff':'#30363d'; g.lineWidth=2; rrect(g,r.x,r.y,r.w,r.h,8); g.stroke();
+    g.fillStyle=active?'#ffffff':'#c9d1d9'; g.font='24px sans-serif'; g.fillText(r.label,r.x+16,r.y+r.h/2+1);
+    if(r.type==='toggle'){const s=26,bx=r.x+r.w-42,by=r.y+r.h/2-s/2;
+      g.strokeStyle='#8b949e'; g.lineWidth=2; rrect(g,bx,by,s,s,5); g.stroke();
+      if(stv[r.k]){g.fillStyle='#3fb950'; rrect(g,bx+4,by+4,s-8,s-8,3); g.fill();}}
+  }
+  panelTex.needsUpdate=true;
+}
+
+const raycaster=new THREE.Raycaster(), _rot=new THREE.Matrix4(), _ndc=new THREE.Vector2();
+const PANEL_MISS={none:true};
+function pickRegion(){const hits=raycaster.intersectObject(panel,false);
+  if(!hits.length||!hits[0].uv)return null;
+  const cx=hits[0].uv.x*P_W, cy=(1-hits[0].uv.y)*P_H;
+  for(const r of regions) if(cx>=r.x&&cx<=r.x+r.w&&cy>=r.y&&cy<=r.y+r.h) return r;
+  return PANEL_MISS;}
+function rayFromController(c){_rot.identity().extractRotation(c.matrixWorld);
+  raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
+  raycaster.ray.direction.set(0,0,-1).applyMatrix4(_rot).normalize();}
+function activate(r){if(!r||r.none)return;
+  if(r.type==='struct')loadStructure(r.i);
+  else{if(r.k==='crystal')showCrystal=!showCrystal; else if(r.k==='rays')showRays=!showRays;
+       else if(r.k==='recip')showRecip=!showRecip; else if(r.k==='det')showDet=!showDet; applyVis();}
+  drawPanel();}
+function updateHover(){let hr=null;
+  if(renderer.xr.isPresenting){for(const c of [c0,c1]){rayFromController(c);const r=pickRegion();if(r&&r!==PANEL_MISS){hr=r;break;}}}
+  else{raycaster.setFromCamera(_ndc,camera);const r=pickRegion();if(r&&r!==PANEL_MISS)hr=r;}
+  if(hr!==hoverRegion){hoverRegion=hr; drawPanel();}}
 
 let cur=-1;
 function loadStructure(i){
@@ -171,7 +228,7 @@ function loadStructure(i){
   recipGroup.add(pts);
   // real-space diffracted rays (sample → detector) + detector spots
   if(realRays)realGroup.remove(realRays);
-  if(detSpots)realGroup.remove(detSpots);
+  if(detSpots)detGroup.remove(detSpots);
   const rg=new THREE.BufferGeometry(); rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*6),3));
   realRays=new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0xff5c57,transparent:true,opacity:0.8}));
   realRays.frustumCulled=false; realGroup.add(realRays);
@@ -179,7 +236,7 @@ function loadStructure(i){
   sg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
   sg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3));
   detSpots=new THREE.Points(sg,new THREE.PointsMaterial({size:0.045,map:dotTex,vertexColors:true,sizeAttenuation:true,transparent:true,alphaTest:0.5,depthWrite:false}));
-  detSpots.frustumCulled=false; realGroup.add(detSpots);
+  detSpots.frustumCulled=false; detGroup.add(detSpots);
   // real-space atoms
   atomMeshes.forEach(m=>crystalGroup.remove(m)); atomMeshes=[];
   for(const a of st.satoms){const e=EL[a.el];
@@ -189,7 +246,7 @@ function loadStructure(i){
   const C=st.corners, E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
   const bl=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(E.flatMap(e=>[new THREE.Vector3(...C[e[0]]),new THREE.Vector3(...C[e[1]])])),new THREE.LineBasicMaterial({color:0x8899aa}));
   crystalGroup.add(bl); atomMeshes.push(bl);
-  setInfo(st.name);
+  setInfo(st.name); applyVis();
 }
 
 /* ---------- detector face (dark plane + resolution rings + beam centre) ---------- */
@@ -248,9 +305,12 @@ let grabbing=null, mouseDown=false;
 const grabStart=new THREE.Quaternion(), orientStart=new THREE.Quaternion(), tmpQ=new THREE.Quaternion(), tmpQ2=new THREE.Quaternion();
 // desktop mouse: free reorientation (mounting); pauses the goniometer spin while dragging
 (function(){let px=0,py=0;const el=renderer.domElement;
-  el.addEventListener('mousedown',e=>{mouseDown=true;px=e.clientX;py=e.clientY;});
+  const setNDC=e=>_ndc.set(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1);
+  el.addEventListener('mousedown',e=>{setNDC(e); raycaster.setFromCamera(_ndc,camera);
+    const r=pickRegion(); if(r){activate(r); return;}                 // clicked the control panel → no scene drag
+    mouseDown=true;px=e.clientX;py=e.clientY;});
   window.addEventListener('mouseup',()=>mouseDown=false);
-  window.addEventListener('mousemove',e=>{if(!mouseDown)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+  window.addEventListener('mousemove',e=>{setNDC(e); if(!mouseDown)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
     tmpQ.setFromAxisAngle(new THREE.Vector3(0,1,0),dx*0.01); tmpQ2.setFromAxisAngle(new THREE.Vector3(1,0,0),dy*0.01);
     orientation.premultiply(tmpQ.multiply(tmpQ2));});
 })();
@@ -259,7 +319,9 @@ const c0=renderer.xr.getController(0), c1=renderer.xr.getController(1);
 [c0,c1].forEach(c=>{scene.add(c);
   const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-0.6)]),new THREE.LineBasicMaterial({color:0x58a6ff}));
   c.add(ray);
-  c.addEventListener('selectstart',()=>{grabbing=c;c.getWorldQuaternion(grabStart);orientStart.copy(orientation);});
+  c.addEventListener('selectstart',()=>{rayFromController(c);const r=pickRegion();
+    if(r){activate(r);return;}                                        // pointed at the control panel → click it, don't grab
+    grabbing=c;c.getWorldQuaternion(grabStart);orientStart.copy(orientation);});
   c.addEventListener('selectend',()=>{if(grabbing===c)grabbing=null;});
   c.addEventListener('squeezestart',()=>loadStructure(cur+1));
 });
@@ -283,8 +345,9 @@ if(navigator.xr){
 }
 
 /* ---------- loop ---------- */
-loadStructure(0);
+loadStructure(0); drawPanel();
 renderer.setAnimationLoop(()=>{
+  updateHover();
   if(grabbing){grabbing.getWorldQuaternion(tmpQ); tmpQ2.copy(grabStart).invert(); orientation.copy(tmpQ.multiply(tmpQ2)).multiply(orientStart);}
   else if(!mouseDown) orientation.premultiply(idle);      // released → goniometer spins about z
   computeFrame();
