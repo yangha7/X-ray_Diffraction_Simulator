@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Crystal Lab VR v0.4.5 — reciprocal space in your headset</title>
+<title>Crystal Lab VR v0.4.6 — reciprocal space in your headset</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
   #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR v0.4.5 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR v0.4.6 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -69,13 +69,16 @@ function recipOf(cl){const {a,b,c,al,be,ga}=cl;const ca=Math.cos(al*deg),cb=Math
 function prep(st){
   const rc=recipOf(st.cell); st.rc=rc;
   const smax=1/S.dmin, hm=Math.ceil(smax/nrm(rc.as))+1, km=Math.ceil(smax/nrm(rc.bs))+1, lm=Math.ceil(smax/nrm(rc.cs))+1;
-  const refl=[]; let Imax=1e-9; const CAP=20000;   // performance guard for large cells / very low dmin
-  outer:
+  const CAP=50000;   // performance ceiling; when hit we keep the lowest-resolution reflections → a complete (smaller) sphere, never a chopped one
+  let cand=[];       // 1) lattice points inside the resolution sphere (cheap; no structure factors yet)
   for(let h=-hm;h<=hm;h++)for(let k=-km;k<=km;k++)for(let l=-lm;l<=lm;l++){if(!h&&!k&&!l)continue;
     const p=[h*rc.as[0]+k*rc.bs[0]+l*rc.cs[0],h*rc.as[1]+k*rc.bs[1]+l*rc.cs[1],h*rc.as[2]+k*rc.bs[2]+l*rc.cs[2]];
-    const pl=nrm(p); if(pl>smax)continue; const s2=(pl/2)**2; let re=0,im=0;
+    const pl=nrm(p); if(pl<=smax)cand.push([h,k,l,pl,p]);}
+  if(cand.length>CAP){cand.sort((a,b)=>a[3]-b[3]); cand.length=CAP;}
+  const refl=[]; let Imax=1e-9;   // 2) structure factors for the kept reflections only
+  for(const c of cand){const h=c[0],k=c[1],l=c[2],s2=(c[3]/2)**2; let re=0,im=0;
     for(const at of st.atoms){const e=EL[at[0]];const f=e.Z*(at[5]||1)*Math.exp(-(FORMC+(at[4]||1))*s2);const ph=2*Math.PI*(h*at[1]+k*at[2]+l*at[3]);re+=f*Math.cos(ph);im+=f*Math.sin(ph);}
-    const I=re*re+im*im; if(I<0.5)continue; refl.push({p:p, I:I}); if(I>Imax)Imax=I; if(refl.length>=CAP)break outer;}
+    const I=re*re+im*im; if(I<0.5)continue; refl.push({p:c[4], I:I}); if(I>Imax)Imax=I;}
   for(const r of refl)r.b=Math.sqrt(r.I/Imax);
   st.refl=refl;
   const M=rc.M, mx=Math.max(st.cell.a,st.cell.b,st.cell.c), sc=0.30/mx; st.sc=sc;
@@ -151,7 +154,7 @@ function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;
 const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.4.5',cv.width/2,90);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.4.6',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
   ctx.fillStyle='#8b949e';ctx.font='32px sans-serif';ctx.fillText('Left panel: tap buttons/toggles · hold trigger on a slider & sweep · drag scene to reorient',cv.width/2,250);tex.needsUpdate=true;}
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
