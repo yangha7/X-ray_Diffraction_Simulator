@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Crystal Lab VR v0.4.2 — reciprocal space in your headset</title>
+<title>Crystal Lab VR v0.4.3 — reciprocal space in your headset</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
   #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab VR v0.4.2 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
+<div id="hint">Crystal Lab VR v0.4.3 — <b>real space in front</b>, <b>reciprocal space behind you</b>, <b>control panel on your left</b>. Point the laser + trigger for buttons/toggles; <b>hold the trigger and sweep</b> to drag a slider. <b>Right thumbstick up/down zooms the crystal.</b> Drag the scene to reorient; release and the goniometer spins. Tap <b>Enter VR</b> / <b>Enter AR</b> on your Quest 3.</div>
 <div id="ui">
   <button id="vrBtn" class="primary" disabled>Enter VR</button>
   <button id="arBtn" disabled>Enter AR (passthrough)</button>
@@ -48,6 +48,7 @@ function expandCrambin(){const ops=[(x,y,z)=>[x,y,z],(x,y,z)=>[-x,y+0.5,-z]];con
   for(const t of CRAMBIN_PACKED.split('|')){const p=t.split(' '),el=p[0],x=+p[1],y=+p[2],z=+p[3],B=+p[4];
     for(const op of ops){const q=op(x,y,z);out.push([el,w(q[0]),w(q[1]),w(q[2]),B,1]);}}
   return out;}
+function crambinAsym(){return CRAMBIN_PACKED.split('|').map(t=>{const p=t.split(' ');return [p[0],+p[1],+p[2],+p[3],+p[4],1];});}   // unwrapped single molecule
 const STRUCTS=[
   {name:'NaCl (rock salt)', cell:{a:5.64,b:5.64,c:5.64,al:90,be:90,ga:90}, atoms:[
      ['Na',0,0,0,1,1],['Na',.5,.5,0,1,1],['Na',.5,0,.5,1,1],['Na',0,.5,.5,1,1],
@@ -57,7 +58,7 @@ const STRUCTS=[
   {name:'CsCl', cell:{a:4.12,b:4.12,c:4.12,al:90,be:90,ga:90}, atoms:[
      ['Cs',0,0,0,1.3,1],['Cl',.5,.5,.5,1.3,1]]},
   {name:'Ice Ih (hexagonal water)', cell:{a:4.497,b:4.497,c:7.322,al:90,be:90,ga:120}, atoms:ICE},
-  {name:'Crambin (1CRN protein)', cell:{a:40.96,b:18.65,c:22.52,al:90,be:90.77,ga:90}, atoms:expandCrambin(), defDmin:3.0, macro:true},
+  {name:'Crambin (1CRN protein)', cell:{a:40.96,b:18.65,c:22.52,al:90,be:90.77,ga:90}, atoms:expandCrambin(), mol:crambinAsym(), defDmin:3.0, macro:true},
 ];
 
 /* ---------- crystallography (reflection list depends on S.dmin only; λ handled at display time) ---------- */
@@ -150,7 +151,7 @@ function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;
 const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.4.2',cv.width/2,90);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab VR  v0.4.3',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
   ctx.fillStyle='#8b949e';ctx.font='32px sans-serif';ctx.fillText('Left panel: tap buttons/toggles · hold trigger on a slider & sweep · drag scene to reorient',cv.width/2,250);tex.needsUpdate=true;}
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
@@ -159,11 +160,15 @@ function makeLabel(text,color){const cv=document.createElement('canvas');cv.widt
   sp.scale.set(0.8,0.2,1);return sp;}
 const realLabel=makeLabel('REAL SPACE','#8fd0ff'); realLabel.position.set(-0.7,1.78,-1.4); scene.add(realLabel);
 const recipLabel=makeLabel('RECIPROCAL SPACE','#ffce54'); recipLabel.position.set(0,2.05,1.7); scene.add(recipLabel);
+const molGroup=new THREE.Group(); molGroup.position.set(0,1.45,2.7); scene.add(molGroup);   // whole-molecule viewer, beyond reciprocal space
+const molLabel=makeLabel('MOLECULE','#8fd0ff'); molLabel.position.set(0,2.05,2.7); scene.add(molLabel);
+let molMeshes=[];
 
 /* ---------- visibility + rebuild helpers ---------- */
-let showCrystal=true, showRays=true, showRecip=true, showDet=true;
+let showCrystal=true, showRays=true, showRecip=true, showDet=true, showMol=false;
 function applyVis(){crystalGroup.visible=showCrystal; if(realRays)realRays.visible=showRays;
-  recipGroup.visible=showRecip; recipLabel.visible=showRecip; detGroup.visible=showDet;}
+  recipGroup.visible=showRecip; recipLabel.visible=showRecip; detGroup.visible=showDet;
+  molGroup.visible=showMol; molLabel.visible=showMol;}
 function rebuildEwald(){const r=Math.min(SC_R/S.lam,6); ewald.scale.setScalar(r); ewald.position.x=-r;}
 function rebuildRings(){for(const t of ringTags)detGroup.remove(t); ringTags=[];
   for(const d of [S.dmin,S.dmin*1.4,S.dmin*2,S.dmin*3]){const s=S.lam/(2*d); if(s>=1)continue;
@@ -216,6 +221,30 @@ function buildCrystal(st){                        // proteins → bond lines; ot
   const box=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(bp2),new THREE.LineBasicMaterial({color:0x8899aa,transparent:true,opacity:0.5}));
   crystalGroup.add(box); atomMeshes.push(box);
 }
+function buildMolecule(st){                        // ONE whole molecule (unwrapped) → not chopped by the lattice
+  for(const m of molMeshes){molGroup.remove(m); if(m.material&&m.material.dispose)m.material.dispose(); if(m.geometry&&m.geometry!==sphereGeo&&m.geometry.dispose)m.geometry.dispose();}
+  molMeshes=[];
+  const src=st.mol||st.atoms, M=st.rc.M;
+  const X=src.map(a=>[a[1]*M[0][0]+a[2]*M[1][0]+a[3]*M[2][0], a[1]*M[0][1]+a[2]*M[1][1]+a[3]*M[2][1], a[1]*M[0][2]+a[2]*M[1][2]+a[3]*M[2][2]]);
+  let cx=0,cy=0,cz=0; for(const q of X){cx+=q[0];cy+=q[1];cz+=q[2];} cx/=X.length;cy/=X.length;cz/=X.length;
+  let ext=0.01; for(const q of X)ext=Math.max(ext,Math.abs(q[0]-cx),Math.abs(q[1]-cy),Math.abs(q[2]-cz));
+  const msc=0.24/ext, pos=X.map(q=>[(q[0]-cx)*msc,(q[1]-cy)*msc,(q[2]-cz)*msc]);
+  const colOf=el=>{const c=EL[el].c; return [((c>>16)&255)/255,((c>>8)&255)/255,(c&255)/255];};
+  if(st.macro){                                    // bonds (element-split lines)
+    const bonds=computeBonds(pos,1.95*msc), pp=[], cc=[];
+    for(let b=0;b<bonds.length;b+=2){const ia=bonds[b],ib=bonds[b+1],A=pos[ia],B=pos[ib],mx=(A[0]+B[0])/2,my=(A[1]+B[1])/2,mz=(A[2]+B[2])/2,cA=colOf(src[ia][0]),cB=colOf(src[ib][0]);
+      pp.push(A[0],A[1],A[2],mx,my,mz,mx,my,mz,B[0],B[1],B[2]); cc.push(cA[0],cA[1],cA[2],cA[0],cA[1],cA[2],cB[0],cB[1],cB[2],cB[0],cB[1],cB[2]);}
+    const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute(pp,3)); geo.setAttribute('color',new THREE.Float32BufferAttribute(cc,3));
+    const lm=new THREE.LineSegments(geo,new THREE.LineBasicMaterial({vertexColors:true})); lm.frustumCulled=false; molGroup.add(lm); molMeshes.push(lm);
+  } else {                                          // balls
+    const byEl={}; for(let i=0;i<src.length;i++){(byEl[src[i][0]]||(byEl[src[i][0]]=[])).push(pos[i]);}
+    for(const el in byEl){const list=byEl[el], e=EL[el], r=0.05*Math.cbrt(e.r);
+      const im=new THREE.InstancedMesh(sphereGeo,new THREE.MeshPhongMaterial({color:e.c,shininess:60}),list.length);
+      for(let q=0;q<list.length;q++){_m4.makeScale(r,r,r);_m4.setPosition(list[q][0],list[q][1],list[q][2]);im.setMatrixAt(q,_m4);}
+      im.instanceMatrix.needsUpdate=true; im.frustumCulled=false; molGroup.add(im); molMeshes.push(im);}
+  }
+  molGroup.scale.setScalar(zoom);
+}
 
 /* ---------- load / rebuild the current structure buffers ---------- */
 let cur=-1;
@@ -238,7 +267,7 @@ function loadStructure(i){
   sg.setAttribute('aSize',new THREE.BufferAttribute(new Float32Array(n),1));
   detSpots=new THREE.Points(sg,makePointMat(false));
   detSpots.frustumCulled=false; detGroup.add(detSpots);
-  buildCrystal(st);
+  buildCrystal(st); buildMolecule(st);
   setInfo(st.name); applyVis();
 }
 
@@ -286,7 +315,7 @@ function computeFrame(){
   detSpots.geometry.setDrawRange(0,sN);
   detSpots.geometry.attributes.position.needsUpdate=true; detSpots.geometry.attributes.aColor.needsUpdate=true; detSpots.geometry.attributes.aSize.needsUpdate=true;
   drawDetectorFace();
-  crystalGroup.quaternion.copy(orientation);
+  crystalGroup.quaternion.copy(orientation); molGroup.quaternion.copy(orientation);
 }
 
 /* ---------- left control panel ---------- */
@@ -295,7 +324,7 @@ function lamDisplay(){const l=S.lam;
   if(S.lamUnit==='xray'){const e=12.39842/l; return e.toFixed(e<10?2:1)+' keV';}
   const W=(12.2639/l)**2,a=0.97845e-6; const kv=(-1+Math.sqrt(1+4*a*W))/(2*a)/1000; return kv.toFixed(kv<10?2:1)+' keV';}
 
-const P_W=460, P_H=880;
+const P_W=460, P_H=912;
 const panelCv=document.createElement('canvas'); panelCv.width=P_W; panelCv.height=P_H;
 const panelCtx=panelCv.getContext('2d'); const panelTex=new THREE.CanvasTexture(panelCv);
 const panel=new THREE.Mesh(new THREE.PlaneGeometry(0.66,0.66*P_H/P_W),
@@ -321,6 +350,7 @@ regions.push({type:'slider',id:'spin',label:'spin speed',x:16,y:672,w:300,h:46,
 regions.push({type:'spintoggle',x:328,y:672,w:116,h:46});
 [['Atoms / cell','crystal'],['Diffracted rays','rays'],['Reciprocal','recip'],['Detector','det']].forEach((b,idx)=>{const c=idx%2,rw=(idx/2)|0;
   regions.push({type:'toggle',k:b[1],label:b[0],x:16+c*222,y:758+rw*48,w:206,h:42});});
+regions.push({type:'toggle',k:'mol',label:'Molecule viewer (whole)',x:16,y:854,w:428,h:42});
 
 function rrect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
 let hoverRegion=null;
@@ -332,7 +362,7 @@ function drawPanel(){const g=panelCtx; g.clearRect(0,0,P_W,P_H);
   g.fillStyle='#8b949e'; g.font='bold 17px sans-serif';
   g.fillText('STRUCTURE',16,54); g.fillText('CELLS',16,228); g.fillText('BEAM',16,304); g.fillText('DETECTOR',16,428);
   g.fillText('RESOLUTION',16,516); g.fillText('DISPLAY',16,604); g.fillText('SHOW / HIDE',16,746);
-  const tstate={crystal:showCrystal,rays:showRays,recip:showRecip,det:showDet};
+  const tstate={crystal:showCrystal,rays:showRays,recip:showRecip,det:showDet,mol:showMol};
   for(const r of regions){const hov=(r===hoverRegion);
     if(r.type==='slider'){
       g.textAlign='left'; g.fillStyle='#c9d1d9'; g.font='19px sans-serif'; g.fillText(r.label,r.x,r.y+13);
@@ -373,7 +403,7 @@ function activate(r){if(!r||r.none)return;
   else if(r.type==='unit')S.lamUnit=r.val;
   else if(r.type==='spintoggle')S.spinOn=!S.spinOn;
   else if(r.type==='toggle'){if(r.k==='crystal')showCrystal=!showCrystal;else if(r.k==='rays')showRays=!showRays;
-    else if(r.k==='recip')showRecip=!showRecip;else if(r.k==='det')showDet=!showDet; applyVis();}
+    else if(r.k==='recip')showRecip=!showRecip;else if(r.k==='det')showDet=!showDet;else if(r.k==='mol')showMol=!showMol; applyVis();}
   drawPanel();}
 function updateHover(){let hr=null;
   if(renderer.xr.isPresenting){for(const c of [c0,c1]){rayFromController(c);const r=pickRegion();if(r&&r!==PANEL_MISS){hr=r;break;}}}
@@ -383,7 +413,7 @@ function updateHover(){let hr=null;
 /* ---------- interaction ---------- */
 const GONO=new THREE.Vector3(0,0,1), spinQ=new THREE.Quaternion();
 let grabbing=null, mouseDown=false, draggingSlider=null, zoom=1;
-function setZoom(z){zoom=Math.max(0.3,Math.min(4,z)); crystalGroup.scale.setScalar(zoom);}
+function setZoom(z){zoom=Math.max(0.3,Math.min(4,z)); crystalGroup.scale.setScalar(zoom); molGroup.scale.setScalar(zoom);}
 function readZoom(){const s=renderer.xr.getSession(); if(!s)return;          // right thumbstick up/down → zoom the crystal
   for(const src of s.inputSources){ if(src.handedness==='right'&&src.gamepad){const ax=src.gamepad.axes;
     const y=ax.length>=4?ax[3]:(ax[1]||0); if(Math.abs(y)>0.15) setZoom(zoom*(1-y*0.02)); return; }}}
