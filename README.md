@@ -1,6 +1,6 @@
 # Crystal Lab — X-ray diffraction & reciprocal-space simulator
 
-**Version 1.02**  ·  VR viewer **v0.2**
+**Version 1.02**  ·  VR viewer **v0.4.7**
 
 An interactive, zero-install browser tool for X-ray crystallography. It ties together the
 real-space crystal, the reciprocal lattice + Ewald sphere, and a live simulated detector, all
@@ -14,9 +14,10 @@ install — just open it in a browser.
 ## Files
 
 - **crystal_lab.html** — the main tool (this is v1.02).
-- **vr_viewer.html** — standalone WebXR viewer for Meta Quest 3 (v0.2): the real-space experiment
-  (beam, crystal on the goniometer, diffracted rays, detector ⟂ beam) in front of you and
-  reciprocal space + Ewald sphere behind you. Served over HTTPS via GitHub Pages.
+- **vr_viewer.html** — standalone WebXR viewer for Meta Quest 3 (v0.4.7): stand inside the
+  experiment with real space in front, reciprocal space behind, a control panel on your left, and
+  a whole-molecule viewer on your right. Served over HTTPS via GitHub Pages. See the *VR viewer*
+  section below.
 - **diffraction_simulator.html** — the original, simpler lattice/Ewald simulator (schematic
   intensities). Kept as a stripped-down teaching view of just the Ewald construction.
 - **sample_1CRN.pdb** — crambin coordinates, handy for testing the upload path.
@@ -92,6 +93,37 @@ Load your own:
   uploads open at **1 Å**. Large custom/fetched structures (> 1000 atoms in the cell, i.e.
   proteins/DNA) open at **3 Å** to stay responsive — raise or lower d_min manually anytime.
 
+## VR viewer (`vr_viewer.html`, v0.4.7)
+
+A standalone WebXR build for Meta Quest 3 (also runs on desktop as a mouse-driven preview),
+served over HTTPS from GitHub Pages. When you enter VR you stand inside the experiment:
+
+- **Front** — real space: the incident beam (left→right), the crystal on the goniometer, red
+  diffracted rays, and a detector ⟂ the beam at the downstream end.
+- **Behind you** — reciprocal space: the reciprocal lattice and the Ewald sphere (which scales
+  with λ), sharing the same beam direction as the front.
+- **Left** — a floating control panel (plane ⟂ the beam), driven with the controller laser:
+  point + trigger for buttons/toggles, hold the trigger and sweep to drag a slider.
+- **Right** — a whole-molecule viewer showing the intact, un-chopped molecule (the crystal view
+  wraps atoms into the cell, cutting molecules at boundaries; this shows the complete one).
+
+Built-in structures: NaCl, diamond, CsCl, Ice Ih, **crambin (1CRN)**, and **DNA d(CGCGCG)₂
+(6AQT)**. Small molecules render as instanced spheres; macromolecules as element-coloured bond
+lines (split at each bond's midpoint, same colour code as the ball model).
+
+Panel controls: structure picker · supercell (1×1×1 / 2×2×2 / 3×3×3) · beam wavelength with an
+**Å / X-ray keV / electron keV** selector · detector distance · resolution d_min · spot contrast ·
+goniometer spin speed + on/off · and show/hide toggles for atoms, diffracted rays, reciprocal
+points, detector, the molecule viewer, **Miller hkl labels**, and **powder rings**. The right
+thumbstick (up/down) zooms the crystal and molecule; immersive-VR and AR passthrough are both
+supported.
+
+Parity with `crystal_lab.html`: identical structure factors and Ewald construction, and the
+excitation band is matched (0.008) so a VR *still* overlays a crystal_lab *still* spot-for-spot at
+the same structure, resolution, and orientation (the VR detector is rotated 90° because its beam
+runs along +x rather than +z). Reflections are capped at 50k with resolution-based truncation, so
+the reciprocal lattice stays a complete sphere (to a slightly coarser radius) rather than chopped.
+
 ## Verified (numerically)
 
 - fcc/bcc/diamond/CsCl/NaCl systematic absences; NaCl (111) weak vs (200) strong.
@@ -122,10 +154,10 @@ Load your own:
    background). A JS lattice shape-transform (sincg) is a partial client-side bridge.
 3. **Cromer–Mann form factors + Lorentz–polarization toggle** for closer-to-experiment intensities.
 4. **Desktop polish**: FPS/reflection meter, fullscreen, keyboard φ stepping, click-a-spot-to-read-hkl.
-5. **VR (Meta Quest 3)** — *shipped as `vr_viewer.html` v0.2*: real-space experiment in front
-   (beam, goniometer, diffracted rays, detector ⟂ beam), reciprocal space + Ewald sphere behind
-   you; grab-to-rotate mounting with the goniometer auto-spinning on release; immersive-VR and
-   AR passthrough. Next: drive it live from the desktop controls; more structures in-headset.
+5. **VR (Meta Quest 3)** — *shipped as `vr_viewer.html` v0.4.7* (see the VR viewer section above):
+   full real/reciprocal/detector scene with an in-headset control panel, a whole-molecule viewer,
+   crambin + DNA, Miller-index labels, and powder rings. Next: drive it live from the desktop
+   controls; larger structures in-headset; an optional oscillation (Δφ wedge) model.
 
 ## Getting started
 
