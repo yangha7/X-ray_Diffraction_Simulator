@@ -3,21 +3,47 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Crystal Lab Phone VR v0.1 — Cardboard stereo viewer</title>
+<title>Crystal Lab Phone VR v0.2 — Cardboard stereo viewer</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
   #ui{position:fixed;left:0;right:0;bottom:0;padding:14px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:10}
   button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;padding:10px 16px;font-size:15px;cursor:pointer}
   button.primary{background:#58a6ff;color:#06121f;border:none;font-weight:700}
   button:disabled{opacity:.4;cursor:not-allowed}
-  #hint{position:fixed;top:10px;left:0;right:0;text-align:center;color:#7d8590;font-size:13px;z-index:10;pointer-events:none}
+  #hint{position:fixed;top:6px;left:0;right:0;text-align:center;color:#7d8590;font-size:12px;z-index:10;pointer-events:none;padding:0 8px}
+  #menu{position:fixed;left:0;right:0;bottom:0;max-height:50vh;overflow-y:auto;background:rgba(13,17,23,0.94);border-top:1px solid #30363d;padding:8px 12px 24px;z-index:20;-webkit-overflow-scrolling:touch}
+  #menu h4{margin:12px 0 6px;font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.06em}
+  #menu .grid{display:flex;flex-wrap:wrap;gap:6px}
+  #menu .opt{flex:1 1 28%;min-width:76px;padding:11px 6px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;font-size:14px}
+  #menu .opt.on{background:#1f6feb;color:#fff;border-color:#1f6feb}
+  #menu .row{display:flex;align-items:center;gap:10px;margin:9px 0}
+  #menu .row>label{flex:0 0 90px;font-size:13px;color:#c9d1d9}
+  #menu .row input[type=range]{flex:1;min-width:60px}
+  #menu .row .v{flex:0 0 72px;text-align:right;font-size:13px;color:#58a6ff;font-variant-numeric:tabular-nums}
+  #menu select{flex:1;padding:9px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;font-size:14px}
+  #menu .chips{display:flex;flex-wrap:wrap;gap:6px}
+  #menu .chip{padding:9px 12px;background:#21262d;border:1px solid #30363d;border-radius:18px;font-size:13px;color:#c9d1d9}
+  #menu .chip.on{background:#238636;color:#fff;border-color:#238636}
+  #cbBig{display:block;width:100%;padding:15px;margin:4px 0 6px;background:#58a6ff;color:#06121f;border:none;border-radius:10px;font-size:17px;font-weight:700}
 </style>
 </head>
 <body>
-<div id="hint">Crystal Lab Phone VR v0.1 — <b>set up by tapping</b> the panel (drag empty space to look around, pinch to zoom), then tap <b>Enter Cardboard</b>, drop the phone in your holder, and look around with your head. In Cardboard the <b>centre dot</b> is your pointer: look at a control and <b>tap the screen</b> (or hold your gaze ~1.5 s) to use it.</div>
-<div id="ui">
-  <button id="cbBtn" class="primary">Enter Cardboard ▸</button>
-  <button id="nextBtn">Next structure ▸</button>
+<div id="hint">Crystal Lab Phone VR v0.2 — set everything up with the menu below (live preview above; drag it to look around, pinch to zoom), then tap <b>Enter Cardboard VR</b> and drop the phone in your holder.</div>
+<div id="menu">
+  <button id="cbBig">▶ Enter Cardboard VR</button>
+  <h4>Structure</h4><div class="grid" id="mStruct"></div>
+  <h4>Cells (supercell)</h4><div class="grid" id="mCells"></div>
+  <h4>Beam</h4>
+  <div class="row"><label>unit</label><select id="mUnit"><option value="A">λ (Å)</option><option value="xray">X-ray keV</option><option value="electron">electron keV</option></select></div>
+  <div class="row"><label id="mLamL">λ</label><input type="range" id="mLam" min="0" max="1000" step="1"><span class="v" id="mLamV"></span></div>
+  <h4>Detector</h4>
+  <div class="row"><label>distance</label><input type="range" id="mDist" min="0" max="1000" step="1"><span class="v" id="mDistV"></span></div>
+  <div class="row"><label>resolution</label><input type="range" id="mDmin" min="0.7" max="4" step="0.01"><span class="v" id="mDminV"></span></div>
+  <h4>Display</h4>
+  <div class="row"><label>contrast</label><input type="range" id="mContrast" min="0.3" max="4" step="0.05"><span class="v" id="mContrastV"></span></div>
+  <div class="row"><label>zoom</label><input type="range" id="mZoom" min="0.3" max="4" step="0.05"><span class="v" id="mZoomV"></span></div>
+  <div class="row"><label>spin</label><input type="range" id="mSpin" min="0" max="0.02" step="0.0005"><span class="v" id="mSpinV"></span></div>
+  <h4>Show / hide</h4><div class="chips" id="mToggles"></div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -166,7 +192,7 @@ function textPanel(w,h){const cv=document.createElement('canvas');cv.width=1024;
 const info=textPanel(0.9,0.28); info.position.set(-0.4,2.2,-1.4); scene.add(info);
 function setInfo(name){const {cv,ctx,tex}=info.userData;ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='rgba(13,17,23,0.72)';ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab Phone VR  v0.1',cv.width/2,90);
+  ctx.textAlign='center';ctx.fillStyle='#58a6ff';ctx.font='bold 74px sans-serif';ctx.fillText('Crystal Lab Phone VR  v0.2',cv.width/2,90);
   ctx.fillStyle='#fff';ctx.font='58px sans-serif';ctx.fillText(name,cv.width/2,175);
   ctx.fillStyle='#8b949e';ctx.font='32px sans-serif';ctx.fillText('Look at a control + tap (or dwell ~1.5 s) · reciprocal is behind you · molecule on your right',cv.width/2,250);tex.needsUpdate=true;}
 function makeLabel(text,color){const cv=document.createElement('canvas');cv.width=1024;cv.height=256;const ctx=cv.getContext('2d');
@@ -447,7 +473,7 @@ const _center=new THREE.Vector2(0,0), lastNDC=new THREE.Vector2(0,0);
 function setZoom(z){zoom=Math.max(0.3,Math.min(4,z)); crystalGroup.scale.setScalar(zoom); molGroup.scale.setScalar(zoom);}
 function useRegion(r){if(!r||r.none)return; if(r.type==='slider')applySlider(r,sliderT(r,_hitCX)); else activate(r);}
 // head-look: phone gyro if available, else drag (desktop / no-sensor)
-let devO=null, screenAng=0, camYaw=0, camPitch=0;
+let devO=null, screenAng=0, camYaw=0, camPitch=-0.15;   // slight look-down so the front scene sits above the setup menu
 function updScreenAng(){screenAng=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*deg;}
 updScreenAng(); window.addEventListener('orientationchange',updScreenAng);
 window.addEventListener('deviceorientation',e=>{if(e.alpha==null)return; devO=[e.alpha*deg,e.beta*deg,e.gamma*deg];});
@@ -482,14 +508,47 @@ async function enterCardboard(){
   try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission){const p=await DeviceOrientationEvent.requestPermission(); if(p!=='granted')alert('Motion access denied — head tracking will not work.');}}catch(e){}
   try{if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();}catch(e){}
   try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape');}catch(e){}
-  presenting=true; document.getElementById('ui').style.display='none'; document.getElementById('hint').style.display='none'; onResize();
+  presenting=true; document.getElementById('menu').style.display='none'; document.getElementById('hint').style.display='none'; onResize();
 }
-document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){presenting=false; document.getElementById('ui').style.display='flex'; document.getElementById('hint').style.display='block';} onResize();});
-document.getElementById('cbBtn').onclick=enterCardboard;
-document.getElementById('nextBtn').onclick=()=>selectStructure(cur+1);
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){presenting=false; document.getElementById('menu').style.display='block'; document.getElementById('hint').style.display='block'; syncMenu();} onResize();});
+
+/* ---------- 2D setup menu (touch) — sets everything up before entering Cardboard ---------- */
+function toggleKey(k){ if(k==='crystal')showCrystal=!showCrystal;else if(k==='rays')showRays=!showRays;else if(k==='recip')showRecip=!showRecip;else if(k==='det')showDet=!showDet;else if(k==='mol')showMol=!showMol;else if(k==='hkl')showHKL=!showHKL;else if(k==='powder')showPowder=!showPowder;else if(k==='spin')S.spinOn=!S.spinOn; applyVis(); }
+function wireMenu(){
+  const SHORT=['NaCl','Diamond','CsCl','Ice Ih','Crambin','DNA'];
+  const mS=document.getElementById('mStruct');
+  STRUCTS.forEach((st,i)=>{const b=document.createElement('button');b.className='opt';b.textContent=SHORT[i]||st.name;b.dataset.i=i;b.onclick=()=>{selectStructure(i);syncMenu();};mS.appendChild(b);});
+  const mC=document.getElementById('mCells');
+  [1,2,3].forEach(n=>{const b=document.createElement('button');b.className='opt';b.textContent=n+'×'+n+'×'+n;b.dataset.n=n;b.onclick=()=>{S.cells=n;buildCrystal(STRUCTS[cur]);drawPanel();syncMenu();};mC.appendChild(b);});
+  const mT=document.getElementById('mToggles');
+  [['Atoms','crystal'],['Rays','rays'],['Reciprocal','recip'],['Detector','det'],['Molecule','mol'],['hkl','hkl'],['Powder','powder'],['Spin','spin']].forEach(([lab,k])=>{const c=document.createElement('button');c.className='chip';c.textContent=lab;c.dataset.k=k;c.onclick=()=>{toggleKey(k);drawPanel();syncMenu();};mT.appendChild(c);});
+  document.getElementById('mUnit').onchange=e=>{S.lamUnit=e.target.value;drawPanel();syncMenu();};
+  document.getElementById('mLam').addEventListener('input',e=>{S.lam=0.02*Math.pow(125,e.target.value/1000);rebuildEwald();rebuildRings();drawPanel();syncMenu();});
+  document.getElementById('mDist').addEventListener('input',e=>{S.dist=0.25*Math.pow(20,e.target.value/1000);rebuildDetector();drawPanel();syncMenu();});
+  document.getElementById('mDmin').addEventListener('input',e=>{S.dmin=parseFloat(e.target.value);recomputeStructure();drawPanel();syncMenu();});
+  document.getElementById('mContrast').addEventListener('input',e=>{S.contrast=parseFloat(e.target.value);drawPanel();syncMenu();});
+  document.getElementById('mZoom').addEventListener('input',e=>{setZoom(parseFloat(e.target.value));drawPanel();syncMenu();});
+  document.getElementById('mSpin').addEventListener('input',e=>{S.spin=parseFloat(e.target.value);drawPanel();syncMenu();});
+  document.getElementById('cbBig').onclick=enterCardboard;
+  syncMenu();
+}
+function syncMenu(){
+  document.querySelectorAll('#mStruct .opt').forEach(b=>b.classList.toggle('on',+b.dataset.i===cur));
+  document.querySelectorAll('#mCells .opt').forEach(b=>b.classList.toggle('on',+b.dataset.n===S.cells));
+  const ts={crystal:showCrystal,rays:showRays,recip:showRecip,det:showDet,mol:showMol,hkl:showHKL,powder:showPowder,spin:S.spinOn};
+  document.querySelectorAll('#mToggles .chip').forEach(c=>c.classList.toggle('on',!!ts[c.dataset.k]));
+  const g=(id)=>document.getElementById(id);
+  g('mUnit').value=S.lamUnit; g('mLamL').textContent=(S.lamUnit==='A'?'λ':'energy');
+  g('mLam').value=1000*Math.log(S.lam/0.02)/Math.log(125); g('mLamV').textContent=lamDisplay();
+  g('mDist').value=1000*Math.log(S.dist/0.25)/Math.log(20); g('mDistV').textContent=Math.round(S.dist*1000)+' mm';
+  g('mDmin').value=S.dmin; g('mDminV').textContent=S.dmin.toFixed(2)+' Å';
+  g('mContrast').value=S.contrast; g('mContrastV').textContent=S.contrast.toFixed(1);
+  g('mZoom').value=zoom; g('mZoomV').textContent=zoom.toFixed(2)+'×';
+  g('mSpin').value=S.spin; g('mSpinV').textContent=Math.round(S.spin/0.02*100)+'%';
+}
 
 /* ---------- loop ---------- */
-selectStructure(0); rebuildEwald(); rebuildDetector(); drawPanel();
+selectStructure(0); rebuildEwald(); rebuildDetector(); drawPanel(); wireMenu();
 const stereo=new THREE.StereoCamera(); stereo.aspect=0.5;
 function onResize(){camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight);}
 window.addEventListener('resize',onResize); onResize();
