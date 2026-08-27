@@ -1,16 +1,21 @@
 https://yale-justin-medicines-warcraft.trycloudflare.com
 
-fly-controls script version: 12
-menu-controller script version: 7
+fly-controls script version: 14
+menu-controller script version: 9
 xr in navigator: true
 immersive-vr supported: true
-terrain mesh built OK
 a-scene fired "loaded"
 a-scene fired "renderstart"
+terrain mesh built OK
+leftHand controllerconnected, name=oculus-touch-controls, cursor component removed
 rightHand controllerconnected, name=oculus-touch-controls, cursor component removed
 --- 4s check ---
 scene.hasLoaded: true
 enter-VR button in DOM: true
 enter-VR button display: none
 ERROR: Uncaught TypeError: Cannot read properties of undefined (reading 'quaternion') @ https://yangha7.github.io/VR_Chips/web/libs/aframe.min.js:1
+ERROR: Uncaught TypeError: Cannot read properties of undefined (reading 'quaternion') @ https://yangha7.github.io/VR_Chips/web/libs/aframe.min.js:1
+ERROR: Uncaught TypeError: Cannot read properties of undefined (reading 'quaternion') @ https://yangha7.github.io/VR_Chips/web/libs/aframe.min.js:1
+leftHand controllerconnected, name=oculus-touch-controls, cursor component removed
+rightHand controllerconnected, name=oculus-touch-controls, cursor component removed
 ERROR: Uncaught TypeError: Cannot read properties of undefined (reading 'quaternion') @ https://yangha7.github.io/VR_Chips/web/libs/aframe.min.js:1
